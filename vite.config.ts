@@ -13,7 +13,8 @@ export default defineConfig({
       ".bore.pub",
       ".loca.lt",
       ".ngrok.io",
-      ".ngrok-free.app"
+      ".ngrok-free.app",
+      ".trycloudflare.com"
     ],
     hmr: false, // Disabled for stability across local/tunneled environments
   },
