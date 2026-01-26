@@ -1,0 +1,112 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  * {
+    @apply border-stone-800;
+  }
+
+  html {
+    font-size: 16px;
+  }
+
+  body {
+    @apply bg-ash text-sand antialiased;
+    font-family: 'Inter', system-ui, -apple-system, sans-serif;
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
+  }
+
+  ::-webkit-scrollbar {
+    @apply w-1.5 h-1.5;
+  }
+
+  ::-webkit-scrollbar-track {
+    @apply bg-transparent;
+  }
+
+  ::-webkit-scrollbar-thumb {
+    @apply bg-stone-700 rounded-full;
+  }
+
+  ::-webkit-scrollbar-thumb:hover {
+    @apply bg-stone-600;
+  }
+}
+
+@layer components {
+  /* Button Styles - 44px Touch Targets */
+  .btn-primary {
+    @apply bg-bhagwa text-white px-3 py-2.5 rounded-lg font-medium text-sm
+           hover:bg-orange-600 active:scale-[0.98] transition-all
+           min-h-[40px] touch-manipulation inline-flex items-center justify-center gap-2;
+  }
+
+  .btn-ghost {
+    @apply text-stone-400 px-3 py-2.5 rounded-lg font-medium text-sm
+           hover:bg-stone-800 hover:text-sand active:scale-[0.98] transition-all
+           min-h-[40px] touch-manipulation inline-flex items-center justify-center gap-2;
+  }
+
+  .btn-icon {
+    @apply p-2 rounded-lg hover:bg-stone-800 transition-all text-stone-400 hover:text-sand
+           min-w-[40px] min-h-[40px] inline-flex items-center justify-center;
+  }
+
+  /* Card Styles */
+  .card {
+    @apply bg-stone-900 rounded-lg border border-stone-800 p-4;
+  }
+
+  /* Input Styles - 44px Touch Targets */
+  .input-base {
+    @apply bg-stone-900 border border-stone-700 rounded-lg px-3 py-2.5 text-sm
+           text-sand placeholder:text-stone-500
+           focus:border-bhagwa focus:outline-none focus:ring-1 focus:ring-bhagwa/20
+           min-h-[40px] transition-all;
+  }
+
+  /* Typography Utilities */
+  .text-display {
+    @apply text-2xl md:text-3xl font-bold text-sand;
+  }
+
+  .text-heading {
+    @apply text-lg md:text-xl font-semibold text-sand;
+  }
+
+  .text-subheading {
+    @apply text-sm font-medium text-stone-400 uppercase tracking-wide;
+  }
+
+  .text-body {
+    @apply text-sm text-stone-300 leading-relaxed;
+  }
+
+  .text-caption {
+    @apply text-xs text-stone-400;
+  }
+}
+
+@layer utilities {
+  .safe-area-inset {
+    padding-left: env(safe-area-inset-left);
+    padding-right: env(safe-area-inset-right);
+  }
+
+  .animate-in {
+    animation: fadeIn 0.2s ease-out;
+  }
+
+  @keyframes fadeIn {
+    from {
+      opacity: 0;
+      transform: translateY(4px);
+    }
+    to {
+      opacity: 1;
+      transform: translateY(0);
+    }
+  }
+}

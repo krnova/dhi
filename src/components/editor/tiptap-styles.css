@@ -1,0 +1,263 @@
+/* Tiptap Editor Styles - Agni & Ash Theme */
+
+.ProseMirror {
+  outline: none;
+  min-height: 100%;
+  color: #fafaf9;
+  font-size: 0.875rem;
+  line-height: 1.7;
+}
+
+/* Placeholder */
+.ProseMirror p.is-editor-empty:first-child::before {
+  content: attr(data-placeholder);
+  float: left;
+  color: #78716c;
+  pointer-events: none;
+  height: 0;
+}
+
+/* Headings */
+.ProseMirror h1 {
+  font-size: 2rem;
+  font-weight: 700;
+  color: #fafaf9;
+  margin-top: 1.5rem;
+  margin-bottom: 0.75rem;
+  line-height: 1.2;
+}
+
+.ProseMirror h2 {
+  font-size: 1.5rem;
+  font-weight: 700;
+  color: #fafaf9;
+  margin-top: 1.25rem;
+  margin-bottom: 0.5rem;
+  line-height: 1.3;
+}
+
+.ProseMirror h3 {
+  font-size: 1.25rem;
+  font-weight: 700;
+  color: #fafaf9;
+  margin-top: 1rem;
+  margin-bottom: 0.5rem;
+  line-height: 1.4;
+}
+
+/* Paragraphs */
+.ProseMirror p {
+  color: #d6d3d1;
+  margin-bottom: 0.75rem;
+}
+
+/* Lists */
+.ProseMirror ul,
+.ProseMirror ol {
+  padding-left: 1.5rem;
+  margin-bottom: 0.75rem;
+  color: #d6d3d1;
+}
+
+.ProseMirror ul {
+  list-style-type: disc;
+}
+
+.ProseMirror ol {
+  list-style-type: decimal;
+}
+
+.ProseMirror li {
+  margin-bottom: 0.25rem;
+}
+
+.ProseMirror li p {
+  margin-bottom: 0.25rem;
+}
+
+/* Task Lists */
+.ProseMirror ul[data-type="taskList"] {
+  list-style: none;
+  padding-left: 0;
+}
+
+.ProseMirror ul[data-type="taskList"] li {
+  display: flex;
+  align-items: flex-start;
+  gap: 0.5rem;
+}
+
+.ProseMirror ul[data-type="taskList"] li > label {
+  flex-shrink: 0;
+  margin-top: 0.25rem;
+  user-select: none;
+}
+
+.ProseMirror ul[data-type="taskList"] li > label input[type="checkbox"] {
+  width: 1rem;
+  height: 1rem;
+  accent-color: #ea580c;
+  cursor: pointer;
+}
+
+.ProseMirror ul[data-type="taskList"] li > div {
+  flex: 1;
+}
+
+/* Blockquote */
+.ProseMirror blockquote {
+  border-left: 3px solid #ea580c;
+  padding-left: 1rem;
+  color: #a8a29e;
+  font-style: italic;
+  margin: 1rem 0;
+}
+
+/* Code */
+.ProseMirror code {
+  background-color: #1c1917;
+  color: #ea580c;
+  padding: 0.125rem 0.375rem;
+  border-radius: 0.25rem;
+  font-size: 0.875em;
+  font-family: 'Courier New', monospace;
+}
+
+/* Code Block */
+.ProseMirror pre {
+  background-color: #1c1917;
+  border: 1px solid #292524;
+  border-radius: 0.5rem;
+  padding: 1rem;
+  overflow-x: auto;
+  margin: 1rem 0;
+}
+
+.ProseMirror pre code {
+  background: none;
+  color: #fafaf9;
+  padding: 0;
+  font-size: 0.875rem;
+  line-height: 1.5;
+}
+
+/* Links */
+.ProseMirror a {
+  color: #ea580c;
+  text-decoration: none;
+  cursor: pointer;
+}
+
+.ProseMirror a:hover {
+  text-decoration: underline;
+}
+
+/* Horizontal Rule */
+.ProseMirror hr {
+  border: none;
+  border-top: 2px solid #292524;
+  margin: 2rem 0;
+}
+
+/* Bold */
+.ProseMirror strong {
+  font-weight: 700;
+  color: #fafaf9;
+}
+
+/* Italic */
+.ProseMirror em {
+  font-style: italic;
+}
+
+/* Strike */
+.ProseMirror s {
+  text-decoration: line-through;
+}
+
+/* Selection */
+.ProseMirror ::selection {
+  background-color: #ea580c40;
+}
+
+/* Focus state for better accessibility */
+.ProseMirror:focus {
+  outline: none;
+}
+
+/* Syntax highlighting for code blocks (lowlight) */
+.ProseMirror .hljs-comment,
+.ProseMirror .hljs-quote {
+  color: #78716c;
+  font-style: italic;
+}
+
+.ProseMirror .hljs-keyword,
+.ProseMirror .hljs-selector-tag,
+.ProseMirror .hljs-subst {
+  color: #f472b6;
+}
+
+.ProseMirror .hljs-number,
+.ProseMirror .hljs-literal,
+.ProseMirror .hljs-variable,
+.ProseMirror .hljs-template-variable {
+  color: #fb923c;
+}
+
+.ProseMirror .hljs-string,
+.ProseMirror .hljs-doctag {
+  color: #86efac;
+}
+
+.ProseMirror .hljs-title,
+.ProseMirror .hljs-section,
+.ProseMirror .hljs-selector-id {
+  color: #60a5fa;
+}
+
+.ProseMirror .hljs-type,
+.ProseMirror .hljs-class .hljs-title {
+  color: #c084fc;
+}
+
+.ProseMirror .hljs-tag,
+.ProseMirror .hljs-name,
+.ProseMirror .hljs-attribute {
+  color: #ea580c;
+}
+
+.ProseMirror .hljs-regexp,
+.ProseMirror .hljs-link {
+  color: #67e8f9;
+}
+
+.ProseMirror .hljs-symbol,
+.ProseMirror .hljs-bullet {
+  color: #fbbf24;
+}
+
+.ProseMirror .hljs-built_in,
+.ProseMirror .hljs-builtin-name {
+  color: #a78bfa;
+}
+
+.ProseMirror .hljs-meta {
+  color: #94a3b8;
+}
+
+.ProseMirror .hljs-deletion {
+  background: #7f1d1d;
+}
+
+.ProseMirror .hljs-addition {
+  background: #14532d;
+}
+
+.ProseMirror .hljs-emphasis {
+  font-style: italic;
+}
+
+.ProseMirror .hljs-strong {
+  font-weight: bold;
+}
