@@ -18,20 +18,30 @@
     -moz-osx-font-smoothing: grayscale;
   }
 
-  ::-webkit-scrollbar {
-    @apply w-1.5 h-1.5;
+  /* AGGRESSIVE SCROLLBAR HIDING - ALL METHODS */
+  * {
+    scrollbar-width: none !important; /* Firefox */
+    -ms-overflow-style: none !important; /* IE/Edge */
   }
 
-  ::-webkit-scrollbar-track {
-    @apply bg-transparent;
+  *::-webkit-scrollbar {
+    display: none !important; /* Chrome/Safari/Opera */
+    width: 0 !important;
+    height: 0 !important;
   }
 
-  ::-webkit-scrollbar-thumb {
-    @apply bg-stone-700 rounded-full;
+  *::-webkit-scrollbar-track {
+    display: none !important;
   }
 
-  ::-webkit-scrollbar-thumb:hover {
-    @apply bg-stone-600;
+  *::-webkit-scrollbar-thumb {
+    display: none !important;
+  }
+
+  html::-webkit-scrollbar,
+  body::-webkit-scrollbar {
+    display: none !important;
+    width: 0 !important;
   }
 }
 
