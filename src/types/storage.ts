@@ -32,10 +32,11 @@ export interface Folder {
 export interface Asset {
   id: string;
   noteId: string;
-  type: 'image' | 'file';
+  type: 'image' | 'video' | 'audio' | 'file';
   name: string;
   blob: Blob;
   size: number;
+  mimeType: string;
   createdAt: number;
 }
 
@@ -48,6 +49,6 @@ export interface AppSettings {
   location?: {
     latitude: number;
     longitude: number;
-    manual: boolean; // true if user set manually, false if auto-detected
+    manual: boolean;
   };
 }

@@ -4,9 +4,13 @@ import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 import { useNotesStore, getNextTagColor } from '../stores/notesStore';
 import { useSettingsStore } from '../stores/settingsStore';
+import { AssetImage } from '../components/editor/AssetImage';
 import { ConfirmDialog } from '../components/layout/ConfirmDialog';
 import { TiptapEditor } from '../components/editor/TiptapEditor';
 import { cn } from '../utils/cn';
+import { PlainTextImageUpload } from '../components/editor/PlainTextImageUpload';
+import { assetService } from '../services/AssetService';
+import { extractAssetId } from '../utils/assetUrlHandler';
 import type { Tag } from '../types/storage';
 
 type ViewMode = 'edit' | 'preview' | 'split';
@@ -20,7 +24,9 @@ export const SmritiPage: React.FC = () => {
     createNote,
     setCurrentNote,
     getCurrentNote,
+    getNoteById,
     updateNote,
+    updateNoteOptimistic,
     deleteNote,
     addTag,
     removeTag,
@@ -83,6 +89,7 @@ export const SmritiPage: React.FC = () => {
   const confirmDelete = async () => {
     if (deleteConfirm) {
       try {
+        await assetService.deleteNoteAssets(deleteConfirm.id);
         await deleteNote(deleteConfirm.id);
       } catch (error) {
         console.error('Failed to delete note:', error);
@@ -91,6 +98,7 @@ export const SmritiPage: React.FC = () => {
   };
 
   const handleRemoveTag = async (tagName: string) => {
+    const currentNote = getCurrentNote();
     if (currentNote) {
       await removeTag(currentNote.id, tagName);
     }
@@ -98,6 +106,95 @@ export const SmritiPage: React.FC = () => {
 
   const filteredNotes = searchQuery ? searchNotes(searchQuery) : notes;
   const currentNote = getCurrentNote();
+
+  useEffect(() => {
+    if (!currentNote) return;
+
+    const cleanupTimeout = setTimeout(async () => {
+      const deleted = await assetService.deleteOrphanedAssets(
+        currentNote.content,
+        currentNote.id
+      );
+      if (deleted > 0) {
+        console.log(`Cleaned up ${deleted} orphaned image(s)`);
+      }
+    }, 5000);
+
+    return () => clearTimeout(cleanupTimeout);
+  }, [currentNote?.content, currentNote?.id]);
+
+  const handleWikiLinkClick = (e: React.MouseEvent<HTMLDivElement>) => {
+    const target = e.target as HTMLElement;
+    const text = target.textContent;
+
+    if (text && text.startsWith('[[') && text.endsWith(']]')) {
+      e.preventDefault();
+      const match = text.match(/\[\[([a-z0-9-]+)(?:\|([^\]]+))?\]\]/);
+      if (match) {
+        const noteId = match[1];
+        const note = getNoteById(noteId);
+        if (note) {
+          setCurrentNote(note.id);
+        }
+      }
+    }
+  };
+
+  const renderWikiLinkText = (text: string): React.ReactNode => {
+    const wikiLinkRegex = /\[\[([a-z0-9-]+)(?:\|([^\]]+))?\]\]/g;
+    const parts: React.ReactNode[] = [];
+    let lastIndex = 0;
+    let match;
+
+    while ((match = wikiLinkRegex.exec(text)) !== null) {
+      if (match.index > lastIndex) {
+        parts.push(text.substring(lastIndex, match.index));
+      }
+
+      const noteId = match[1];
+      const displayText = match[2] || getNoteById(noteId)?.title || noteId;
+
+      parts.push(
+        <span
+          key={match.index}
+          onClick={(e) => {
+            e.preventDefault();
+            e.stopPropagation();
+            const note = getNoteById(noteId);
+            if (note) {
+              setCurrentNote(note.id);
+            }
+          }}
+          className="wiki-link-preview"
+          style={{
+            color: '#60a5fa',
+            textDecoration: 'none',
+            borderBottom: '1px solid #60a5fa',
+            cursor: 'pointer',
+            padding: '0 2px',
+            borderRadius: '2px',
+            transition: 'all 0.2s',
+          }}
+          onMouseEnter={(e) => {
+            e.currentTarget.style.backgroundColor = 'rgba(96, 165, 250, 0.1)';
+          }}
+          onMouseLeave={(e) => {
+            e.currentTarget.style.backgroundColor = 'transparent';
+          }}
+        >
+          {displayText}
+        </span>
+      );
+
+      lastIndex = match.index + match[0].length;
+    }
+
+    if (lastIndex < text.length) {
+      parts.push(text.substring(lastIndex));
+    }
+
+    return parts.length > 0 ? parts : text;
+  };
 
   if (isLoading) {
     return (
@@ -112,7 +209,6 @@ export const SmritiPage: React.FC = () => {
   return (
     <>
       <div className="flex h-full relative">
-        {/* Notes Sidebar */}
         <div
           className={cn(
             'bg-stone-900 border-r border-stone-800 transition-all flex-shrink-0 absolute md:relative z-10 h-full',
@@ -224,7 +320,6 @@ export const SmritiPage: React.FC = () => {
           </div>
         </div>
 
-        {/* Editor Area */}
         <div className="flex-1 flex flex-col min-w-0">
           <div className="bg-stone-900 border-b border-stone-800 p-3 flex items-center gap-2 safe-area-inset">
             <button
@@ -240,7 +335,7 @@ export const SmritiPage: React.FC = () => {
                 <input
                   type="text"
                   value={currentNote.title}
-                  onChange={(e) => updateNote(currentNote.id, { title: e.target.value })}
+                  onChange={(e) => updateNoteOptimistic(currentNote.id, { title: e.target.value })}
                   className="input-base flex-1 font-semibold text-sm min-w-0"
                   placeholder="Note title..."
                 />
@@ -321,7 +416,6 @@ export const SmritiPage: React.FC = () => {
           <div className="flex-1 overflow-y-auto">
             {currentNote ? (
               <div className="h-full flex flex-col">
-                {/* Tags Section */}
                 <div className="p-3 border-b border-stone-800 bg-stone-900">
                   <div className="flex items-center gap-2 mb-2">
                     <Hash className="w-3.5 h-3.5 text-bhagwa" />
@@ -374,9 +468,6 @@ export const SmritiPage: React.FC = () => {
                       className="input-base w-full text-xs"
                     />
                   </form>
-                  <p className="text-xs text-stone-600 mt-1.5">
-                    Separate tags with commas. Press Enter to add.
-                  </p>
                 </div>
 
                 <div className="flex-1 flex overflow-hidden">
@@ -385,17 +476,30 @@ export const SmritiPage: React.FC = () => {
                       {isRichEditor ? (
                         <TiptapEditor
                           content={currentNote.content}
-                          onChange={(content) => updateNote(currentNote.id, { content })}
+                          onChange={(content) => updateNoteOptimistic(currentNote.id, { content })}
                           placeholder="Start writing... (Markdown supported)"
+                          noteId={currentNote.id}
                         />
                       ) : (
-                        <div className="p-4 md:p-6 overflow-y-auto h-full">
-                          <textarea
-                            value={currentNote.content}
-                            onChange={(e) => updateNote(currentNote.id, { content: e.target.value })}
-                            className="w-full h-full bg-transparent text-sand resize-none focus:outline-none leading-relaxed font-mono text-sm"
-                            placeholder="Start writing... (Markdown supported)"
-                          />
+                        <div className="flex flex-col h-full">
+                          <div className="border-b border-stone-800 bg-stone-900 p-2 flex items-center gap-2">
+                            <PlainTextImageUpload
+                              noteId={currentNote.id}
+                              onInsert={(markdown) => {
+                                const newContent = currentNote.content + '\n' + markdown + '\n';
+                                updateNoteOptimistic(currentNote.id, { content: newContent });
+                              }}
+                            />
+                            <span className="text-xs text-stone-500">Plain Text Mode - Insert markdown syntax</span>
+                          </div>
+                          <div className="flex-1 overflow-y-auto p-4 md:p-6">
+                            <textarea
+                              value={currentNote.content}
+                              onChange={(e) => updateNoteOptimistic(currentNote.id, { content: e.target.value })}
+                              className="w-full h-full bg-transparent text-sand resize-none focus:outline-none leading-relaxed font-mono text-sm"
+                              placeholder="Start writing... (Markdown supported)"
+                            />
+                          </div>
                         </div>
                       )}
                     </div>
@@ -403,14 +507,22 @@ export const SmritiPage: React.FC = () => {
 
                   {(viewMode === 'preview' || viewMode === 'split') && (
                     <div className={cn('p-4 md:p-6 overflow-y-auto', viewMode === 'split' ? 'flex-1' : 'flex-1')}>
-                      <div className="prose prose-invert prose-stone max-w-none prose-sm md:prose-base">
+                     <div 
+                      className="prose prose-invert prose-stone max-w-none prose-sm md:prose-base"
+                      onClick={handleWikiLinkClick}
+                     >
                         <ReactMarkdown
                           remarkPlugins={[remarkGfm]}
+                          urlTransform={(value) => value} /* <--- CRITICAL FIX HERE */
                           components={{
                             h1: ({node, ...props}) => <h1 className="text-2xl font-bold text-sand mb-3 mt-4" {...props} />,
                             h2: ({node, ...props}) => <h2 className="text-xl font-bold text-sand mb-2 mt-4" {...props} />,
                             h3: ({node, ...props}) => <h3 className="text-lg font-bold text-sand mb-2 mt-3" {...props} />,
-                            p: ({node, ...props}) => <p className="text-stone-300 mb-3 leading-relaxed text-sm" {...props} />,
+                            p: ({node, children, ...props}) => (
+                              <p className="text-stone-300 mb-3 leading-relaxed text-sm" {...props}>
+                                {typeof children === 'string' ? renderWikiLinkText(children) : children}
+                              </p>
+                            ),
                             ul: ({node, ...props}) => <ul className="list-disc list-inside text-stone-300 mb-3 space-y-1 text-sm" {...props} />,
                             ol: ({node, ...props}) => <ol className="list-decimal list-inside text-stone-300 mb-3 space-y-1 text-sm" {...props} />,
                             code: ({node, inline, className, children, ...props}: any) =>
@@ -418,7 +530,17 @@ export const SmritiPage: React.FC = () => {
                                 ? <code className="bg-stone-800 text-bhagwa px-1 py-0.5 rounded text-xs" {...props} />
                                 : <code className="block bg-stone-800 text-sand p-3 rounded-lg overflow-x-auto mb-3 text-xs" {...props} />,
                             blockquote: ({node, ...props}) => <blockquote className="border-l-2 border-bhagwa pl-3 italic text-stone-400 mb-3 text-sm" {...props} />,
-                            a: ({node, ...props}) => <a className="text-bhagwa hover:underline" {...props} />,
+                            img: ({node, src, alt, ...props}) => {
+                              console.log('[Preview] ReactMarkdown img src:', src);
+                              if (!src) return null;
+                              
+                              const assetId = extractAssetId(src);
+                              if (assetId) {
+                                return <AssetImage assetId={assetId} alt={alt} />;
+                              }
+                              
+                              return <img src={src} alt={alt} className="max-w-full h-auto rounded-lg my-2" {...props} />;
+                            },
                           }}
                         >
                           {currentNote.content || '*No content yet*'}
@@ -435,7 +557,6 @@ export const SmritiPage: React.FC = () => {
                     <Edit3 className="w-6 h-6 text-stone-600" />
                   </div>
                   <p className="text-sm mb-1">No note selected</p>
-                  <p className="text-xs text-stone-600 mb-4">Create or select a note to start writing</p>
                   <button onClick={() => setSidebarOpen(true)} className="text-xs text-bhagwa hover:underline md:hidden">
                     Open notes list
                   </button>

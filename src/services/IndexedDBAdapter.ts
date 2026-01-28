@@ -13,14 +13,24 @@ export class IndexedDBAdapter implements StorageAdapter {
   }
 
   private async initDB(): Promise<IDBPDatabase> {
-    return openDB(this.dbName, 1, {
-      upgrade(db) {
+    return openDB(this.dbName, 2, {  // ← Version bumped to 2
+      upgrade(db, oldVersion) {
+        // Clean slate - delete old stores if they exist
+        if (oldVersion < 2) {
+          if (db.objectStoreNames.contains('assets')) {
+            db.deleteObjectStore('assets');
+          }
+        }
+
+        // Create stores with correct schema
         if (!db.objectStoreNames.contains('main')) {
           db.createObjectStore('main');
         }
+        
         if (!db.objectStoreNames.contains('assets')) {
-          db.createObjectStore('assets');
+          db.createObjectStore('assets', { keyPath: 'id' });
         }
+        
         if (!db.objectStoreNames.contains('notes')) {
           const noteStore = db.createObjectStore('notes', { keyPath: 'id' });
           noteStore.createIndex('updatedAt', 'updatedAt');
@@ -95,7 +105,6 @@ export class IndexedDBAdapter implements StorageAdapter {
   async setInStore<T>(storeName: string, value: T): Promise<void> {
     try {
       const db = await this.dbPromise;
-      // For stores with keyPath, just pass the value (the key is extracted from the object)
       await db.put(storeName, value);
     } catch (error) {
       console.error(`IndexedDB setInStore error: ${storeName}`, error);
