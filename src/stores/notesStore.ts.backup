@@ -50,8 +50,8 @@ const generateId = () => {
   return `note-${date}-${time}-${random}`;
 };
 
-// Default tag colors
-export const DEFAULT_TAG_COLORS = [
+// Predefined tag colors
+const DEFAULT_TAG_COLORS = [
   '#ef4444', // red
   '#f97316', // orange
   '#f59e0b', // amber
@@ -67,20 +67,6 @@ export const DEFAULT_TAG_COLORS = [
 let colorIndex = 0;
 
 const getNextColor = () => {
-  // Try to get custom palette from localStorage
-  let palette = DEFAULT_TAG_COLORS;
-  try {
-    const settings = localStorage.getItem('dhi_settings');
-    if (settings) {
-      const parsed = JSON.parse(settings);
-      if (parsed.tagColorPalette && Array.isArray(parsed.tagColorPalette) && parsed.tagColorPalette.length > 0) {
-        palette = parsed.tagColorPalette;
-      }
-    }
-  } catch (err) {
-    console.error('Failed to load custom tag palette:', err);
-  }
-  
   const color = palette[colorIndex];
   colorIndex = (colorIndex + 1) % palette.length;
   return color;
@@ -133,6 +119,8 @@ export const useNotesStore = create<NotesState>((set, get) => ({
     }
   },
 
+  // Optimistic update (instant UI, debounced DB write)
+  // 🔥 OPTIMIZATION: Clear pending timers when switching notes
   clearNoteTimers: (noteId: string) => {
     const timer = updateTimers.get(noteId);
     if (timer) {
@@ -148,11 +136,10 @@ export const useNotesStore = create<NotesState>((set, get) => ({
     
     if (!note) return;
 
-    // 🔥 DEBUG: Log extraction
-    let linkedNotes = note.linkedNotes;
-    if (updates.content !== undefined) {
-      linkedNotes = extractLinkedNoteIds(updates.content);
-    }
+    // Extract linked notes from content if content changed
+    const linkedNotes = updates.content !== undefined
+      ? extractLinkedNoteIds(updates.content)
+      : note.linkedNotes;
 
     const updatedNote: Note = {
       ...note,
@@ -162,10 +149,12 @@ export const useNotesStore = create<NotesState>((set, get) => ({
       updatedAt: Date.now(),
     };
 
+    // Update UI immediately
     set(state => ({
       notes: state.notes.map(n => n.id === id ? updatedNote : n)
     }));
 
+    // Debounce DB write (500ms)
     const existingTimer = updateTimers.get(id);
     if (existingTimer) {
       clearTimeout(existingTimer);
@@ -194,6 +183,7 @@ export const useNotesStore = create<NotesState>((set, get) => ({
         throw new Error('Note not found');
       }
 
+      // Extract linked notes from content if content changed
       const linkedNotes = updates.content !== undefined
         ? extractLinkedNoteIds(updates.content)
         : note.linkedNotes;
@@ -237,6 +227,7 @@ export const useNotesStore = create<NotesState>((set, get) => ({
     
     if (!note) return;
 
+    // Check if tag already exists
     if (note.tags.some(t => t.name.toLowerCase() === tag.name.toLowerCase())) {
       return;
     }
@@ -278,6 +269,7 @@ export const useNotesStore = create<NotesState>((set, get) => ({
 
   deleteFolder: async (id) => {
     try {
+      // Recursively collect all descendant folder IDs
       const allFolders = get().folders;
       const toDelete = new Set<string>();
 
@@ -290,9 +282,11 @@ export const useNotesStore = create<NotesState>((set, get) => ({
 
       collectDescendants(id);
 
+      // Remove all collected folders
       const folders = allFolders.filter(f => !toDelete.has(f.id));
       await db.set('folders', folders);
 
+      // Unfolder any notes that were in deleted folders
       const notes = get().notes;
       const orphanedNotes = notes.filter(n => n.folderId && toDelete.has(n.folderId));
 
@@ -375,6 +369,7 @@ export const useNotesStore = create<NotesState>((set, get) => ({
   searchNotes: (query) => {
     const lowerQuery = query.toLowerCase();
     
+    // Tag search
     if (lowerQuery.startsWith('#')) {
       const tagQuery = lowerQuery.substring(1);
       return get().notes.filter(note =>
@@ -382,10 +377,11 @@ export const useNotesStore = create<NotesState>((set, get) => ({
       );
     }
     
+    // Regular search
     return get().notes.filter(note =>
       note.title.toLowerCase().includes(lowerQuery) ||
       note.content.toLowerCase().includes(lowerQuery) ||
-      note.tags.some(tag => tag.name.toLowerCase().includes(lowerQuery))
+      note.tags.some(tag => tag.name.toLowerCase().includes(tagQuery))
     );
   },
 
@@ -403,4 +399,5 @@ export const useNotesStore = create<NotesState>((set, get) => ({
   },
 }));
 
+// Export helper function
 export const getNextTagColor = getNextColor;

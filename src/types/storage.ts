@@ -51,4 +51,5 @@ export interface AppSettings {
     longitude: number;
     manual: boolean;
   };
+  tagColorPalette?: string[];
 }

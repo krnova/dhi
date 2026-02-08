@@ -1,6 +1,8 @@
 import React, { useEffect, useState } from 'react';
-import { Palette, Type, Zap, Info, Database, Edit3, MapPin } from 'lucide-react';
+import { Palette, Type, Zap, Info, Database, Edit3, MapPin, Hash } from 'lucide-react';
 import { useSettingsStore } from '../stores/settingsStore';
+import { TagPaletteSettings } from '../components/settings/TagPaletteSettings';
+import { DEFAULT_TAG_COLORS } from '../stores/notesStore';
 import { cn } from '../utils/cn';
 
 export const SettingsPage: React.FC = () => {
@@ -167,6 +169,19 @@ export const SettingsPage: React.FC = () => {
           </div>
         </section>
 
+
+        {/* Tag Colors Section */}
+        <section className="card space-y-4">
+          <div className="flex items-center gap-2 pb-3 border-b border-stone-800">
+            <Hash className="w-4 h-4 text-bhagwa" />
+            <h2 className="text-heading text-base">Tag Color Palette</h2>
+          </div>
+
+          <TagPaletteSettings
+            palette={settings.tagColorPalette || DEFAULT_TAG_COLORS}
+            onUpdate={(palette) => updateSettings({ tagColorPalette: palette })}
+          />
+        </section>
         {/* Features Section */}
         <section className="card space-y-4">
           <div className="flex items-center gap-2 pb-3 border-stone-800">

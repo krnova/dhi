@@ -7,15 +7,17 @@
   }
 
   // Parse [[note-id]] or [[note-id|Custom Text]]
+  // Now handles escaped brackets from Tiptap: \[\[note-id\]\]
   export function parseWikiLinks(content: string): WikiLink[] {
-    const wikiLinkRegex = /\[\[([a-z0-9-]+)(?:\|([^\]]+))?\]\]/g;
+    // Match both escaped and unescaped brackets
+    const wikiLinkRegex = /\\?\[\\?\[([a-z0-9-]+)(?:[\|\s]([^\]]+))?\\?\]\\?\]/g;
     const links: WikiLink[] = [];
     let match;
 
     while ((match = wikiLinkRegex.exec(content)) !== null) {
       links.push({
         id: match[1],
-        displayText: match[2] || match[1],
+        displayText: match[2] ? match[2].trim() : match[1],
         startIndex: match.index,
         endIndex: match.index + match[0].length,
       });

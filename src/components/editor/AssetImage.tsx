@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useState, useRef } from 'react';
 import { assetService } from '../../services/AssetService';
 import { Loader2, ImageOff } from 'lucide-react';
 
@@ -11,21 +11,42 @@ export const AssetImage: React.FC<AssetImageProps> = ({ assetId, alt }) => {
   const [imageUrl, setImageUrl] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [shouldLoad, setShouldLoad] = useState(false);
+  const imgRef = useRef<HTMLDivElement>(null);
+
+  // 🔥 OPTIMIZATION: Lazy load with Intersection Observer
+  useEffect(() => {
+    if (!imgRef.current) return;
+
+    const observer = new IntersectionObserver(
+      ([entry]) => {
+        if (entry.isIntersecting) {
+          setShouldLoad(true);
+          observer.disconnect();
+        }
+      },
+      { rootMargin: '200px' } // Load 200px before visible
+    );
+
+    observer.observe(imgRef.current);
+
+    return () => observer.disconnect();
+  }, []);
 
   useEffect(() => {
+    if (!shouldLoad) return;
+
     let active = true;
-    console.log(`[AssetImage] Mounting for ID: ${assetId}`);
+    console.log(`[AssetImage] Loading ${assetId}`);
 
     const loadImage = async () => {
       try {
         const asset = await assetService.getAsset(assetId);
-        console.log(`[AssetImage] DB Result for ${assetId}:`, asset ? 'Found' : 'Not Found');
 
         if (!active) return;
 
         if (asset) {
           const url = assetService.createObjectURL(asset.blob);
-          console.log(`[AssetImage] Generated Blob URL: ${url}`);
           setImageUrl(url);
           setLoading(false);
         } else {
@@ -50,12 +71,15 @@ export const AssetImage: React.FC<AssetImageProps> = ({ assetId, alt }) => {
         assetService.revokeObjectURL(imageUrl);
       }
     };
-  }, [assetId]);
+  }, [shouldLoad, assetId]);
 
-  if (loading) {
+  if (!shouldLoad || loading) {
     return (
-      <div className="flex items-center justify-center p-8 bg-stone-800/30 rounded-lg my-2 border border-stone-800 border-dashed">
-        <Loader2 className="w-5 h-5 text-bhagwa animate-spin" />
+      <div 
+        ref={imgRef}
+        className="flex items-center justify-center p-8 bg-stone-800/30 rounded-lg my-2 border border-stone-800 border-dashed min-h-[120px]"
+      >
+        {shouldLoad && <Loader2 className="w-5 h-5 text-bhagwa animate-spin" />}
       </div>
     );
   }
@@ -76,6 +100,7 @@ export const AssetImage: React.FC<AssetImageProps> = ({ assetId, alt }) => {
       src={imageUrl}
       alt={alt || 'Image'}
       className="max-w-full h-auto rounded-lg border border-stone-700 my-2 shadow-sm"
+      loading="lazy"
       onError={(e) => {
         console.error('[AssetImage] Browser refused to render Blob URL');
         setError('Browser render error');

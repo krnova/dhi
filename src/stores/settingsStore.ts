@@ -18,6 +18,7 @@ const defaultSettings: AppSettings = {
   defaultView: 'editor',
   editorMode: 'rich',
   location: undefined,
+  tagColorPalette: undefined,
 };
 
 const storage = new LocalStorageAdapter();
@@ -64,7 +65,6 @@ export const useSettingsStore = create<SettingsState>((set, get) => ({
           },
           (error) => {
             console.error('Geolocation error:', error);
-            // Fallback to default location
             const defaultLoc = getDefaultLocation();
             const location = {
               ...defaultLoc,
@@ -74,7 +74,6 @@ export const useSettingsStore = create<SettingsState>((set, get) => ({
           }
         );
       } else {
-        // Geolocation not supported - use default
         const defaultLoc = getDefaultLocation();
         const location = {
           ...defaultLoc,
