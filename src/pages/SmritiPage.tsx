@@ -759,6 +759,17 @@ export const SmritiPage: React.FC = () => {
                                   ? <code className="bg-stone-800 text-bhagwa px-1 py-0.5 rounded text-xs" {...props} />
                                   : <code className="block bg-stone-800 text-sand p-3 rounded-lg overflow-x-auto mb-3 text-xs" {...props} />,
                               blockquote: ({ node, ...props }) => <blockquote className="border-l-2 border-bhagwa pl-3 italic text-stone-400 mb-3 text-sm" {...props} />,
+                              a: ({ node, href, children, ...props }) => (
+                                <a
+                                  href={href}
+                                  className="text-bhagwa hover:text-orange-400 underline underline-offset-2 cursor-pointer transition-colors duration-200"
+                                  target="_blank"
+                                  rel="noopener noreferrer"
+                                  {...props}
+                                >
+                                  {children}
+                                </a>
+                              ),
                               img: ({ node, src, alt, ...props }) => {
                                 if (!src) return null;
                                 const assetId = extractAssetId(src);
