@@ -172,7 +172,7 @@ export const TiptapEditor: React.FC<TiptapEditorProps> = ({
     const currentMarkdown = (editor.storage as any).markdown.getMarkdown();
     
     // Only update if content changed externally (e.g., switching notes)
-    if (content !== currentMarkdown && content !== lastExternalContent.current) {
+    if (content !== currentMarkdown) {
       const { from, to } = editor.state.selection;
       
       // Set content without emitting update event
@@ -185,7 +185,7 @@ export const TiptapEditor: React.FC<TiptapEditorProps> = ({
       
       lastExternalContent.current = content;
     }
-  }, [content, editor]);
+  }, [content, editor, noteId]);
 
   useEffect(() => {
     const handleClickOutside = (e: MouseEvent) => {
