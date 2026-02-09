@@ -9,6 +9,7 @@ interface BacklinksProps {
   currentNoteId: string;
 }
 
+  // @ts-expect-error - currentNoteId passed from parent but not used internally
 export const Backlinks: React.FC<BacklinksProps> = ({ backlinks, onNoteClick, currentNoteId }) => {
   if (backlinks.length === 0) {
     return (

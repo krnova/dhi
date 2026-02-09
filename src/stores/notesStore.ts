@@ -39,7 +39,7 @@ interface NotesState {
 const db = new IndexedDBAdapter();
 
 // Debounce timer map for note updates
-const updateTimers = new Map<string, NodeJS.Timeout>();
+const updateTimers = new Map<string, ReturnType<typeof setTimeout>>();
 
 // Generate human-readable note ID: note-ddmmyy-hhmmss-random
 const generateId = () => {

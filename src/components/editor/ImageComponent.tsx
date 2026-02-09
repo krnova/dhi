@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from 'react';
+import { useEffect, useState } from 'react';
 import { NodeViewWrapper } from '@tiptap/react';
 import { assetService } from '../../services/AssetService';
 import { extractAssetId } from '../../utils/assetUrlHandler';

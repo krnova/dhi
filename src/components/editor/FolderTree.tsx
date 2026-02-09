@@ -242,6 +242,7 @@ const TreeNode = React.memo(TreeNodeRaw, (prev, next) => {
 });
 
 export const FolderTree: React.FC<FolderTreeProps> = (props) => {
+  // @ts-expect-error - Used via spread operator {...props} on line 304
   const { folders, notes, selectedFolderId, currentNoteId, onFolderSelect, onNoteSelect, onRequestCreateChild, onMoveNote } = props;
   
   // 🔥 OPTIMIZED: Memoize root folders

@@ -14,9 +14,7 @@ import { cn } from '../utils/cn';
 import { PlainTextImageUpload } from '../components/editor/PlainTextImageUpload';
 import { assetService } from '../services/AssetService';
 import { extractAssetId } from '../utils/assetUrlHandler';
-import type { Tag, Folder as FolderType } from '../types/storage';
-import { TagPaletteSettings } from '../components/settings/TagPaletteSettings';
-import { DEFAULT_TAG_COLORS } from '../stores/notesStore';
+import type { Folder as FolderType } from '../types/storage';
 
 type ViewMode = 'edit' | 'preview' | 'split';
 

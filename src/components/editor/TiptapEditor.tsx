@@ -37,8 +37,8 @@ import {
 import { cn } from '../../utils/cn';
 
 // Debounce only store writes, not editor state
-let storeWriteTimeout: NodeJS.Timeout | null = null;
-let autocompleteThrottle: NodeJS.Timeout | null = null;
+let storeWriteTimeout: ReturnType<typeof setTimeout> | null = null;
+let autocompleteThrottle: ReturnType<typeof setTimeout> | null = null;
 
 const lowlight = createLowlight(common);
 
@@ -114,7 +114,7 @@ export const TiptapEditor: React.FC<TiptapEditorProps> = ({
       attributes: {
         class: 'prose prose-invert prose-stone max-w-none focus:outline-none min-h-full p-4 md:p-6',
       },
-      handleDrop: (view, event, slice, moved) => {
+      handleDrop: (_view, event, _slice, moved) => {
         if (!moved && event.dataTransfer && event.dataTransfer.files && event.dataTransfer.files[0]) {
           const file = event.dataTransfer.files[0];
           if (file.type.startsWith('image/')) {
@@ -125,7 +125,7 @@ export const TiptapEditor: React.FC<TiptapEditorProps> = ({
         }
         return false;
       },
-      handlePaste: (view, event) => {
+      handlePaste: (_view, event) => {
         const items = event.clipboardData?.items;
         if (items) {
           for (let i = 0; i < items.length; i++) {
@@ -144,7 +144,7 @@ export const TiptapEditor: React.FC<TiptapEditorProps> = ({
     },
     onUpdate: ({ editor }) => {
       // Get raw HTML content then convert to markdown manually
-      const html = editor.getHTML();
+      // const html = editor.getHTML();
       // For now, use the markdown extension's output
       const markdown = (editor.storage as any).markdown.getMarkdown();
 
@@ -176,7 +176,7 @@ export const TiptapEditor: React.FC<TiptapEditorProps> = ({
       const { from, to } = editor.state.selection;
       
       // Set content without emitting update event
-      editor.commands.setContent(content, false);
+      editor.commands.setContent(content, { emitUpdate: false });
       
       // Restore cursor position if valid
       if (from <= editor.state.doc.content.size) {

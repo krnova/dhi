@@ -101,7 +101,7 @@ export const AssetImage: React.FC<AssetImageProps> = ({ assetId, alt }) => {
       alt={alt || 'Image'}
       className="max-w-full h-auto rounded-lg border border-stone-700 my-2 shadow-sm"
       loading="lazy"
-      onError={(e) => {
+      onError={(_e) => {
         console.error('[AssetImage] Browser refused to render Blob URL');
         setError('Browser render error');
       }}
