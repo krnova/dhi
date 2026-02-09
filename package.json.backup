@@ -9,11 +9,7 @@
     "lint": "eslint .",
     "preview": "vite preview",
     "src": "find src -type f -name '*.*' -exec awk 'FNR==1{print \"\\n--- \" FILENAME \" ---\"} {print FNR \". \" $0}' {} +",
-    "serve": "serve -s dist -l 5173",
-    "cap:sync": "cap sync",
-    "cap:build": "npm run build && cap sync",
-    "android:build": "npm run build && cap sync android && cd android && ./gradlew assembleRelease",
-    "android:build:debug": "npm run build && cap sync android && cd android && ./gradlew assembleDebug"
+    "serve": "serve -s dist -l 5173"
   },
   "dependencies": {
     "@capacitor/android": "^8.0.2",
