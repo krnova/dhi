@@ -1,4 +1,4 @@
-import React, { useEffect, useState, useRef } from 'react';
+import React, { useEffect, useState, useRef, useMemo } from 'react';
 import { assetService } from '../../services/AssetService';
 import { Loader2, ImageOff } from 'lucide-react';
 
@@ -7,14 +7,14 @@ interface AssetImageProps {
   alt?: string;
 }
 
-export const AssetImage: React.FC<AssetImageProps> = ({ assetId, alt }) => {
-  const [imageUrl, setImageUrl] = useState<string | null>(null);
+const AssetImageComponent: React.FC<AssetImageProps> = ({ assetId, alt }) => {
+  const [imageBlob, setImageBlob] = useState<Blob | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [shouldLoad, setShouldLoad] = useState(false);
-  const imgRef = useRef<HTMLDivElement>(null);
+  const imgRef = useRef<HTMLSpanElement>(null);
 
-  // 🔥 OPTIMIZATION: Lazy load with Intersection Observer
+  // Lazy load with Intersection Observer
   useEffect(() => {
     if (!imgRef.current) return;
 
@@ -25,7 +25,7 @@ export const AssetImage: React.FC<AssetImageProps> = ({ assetId, alt }) => {
           observer.disconnect();
         }
       },
-      { rootMargin: '200px' } // Load 200px before visible
+      { rootMargin: '200px' }
     );
 
     observer.observe(imgRef.current);
@@ -33,11 +33,11 @@ export const AssetImage: React.FC<AssetImageProps> = ({ assetId, alt }) => {
     return () => observer.disconnect();
   }, []);
 
+  // Load asset from IndexedDB
   useEffect(() => {
     if (!shouldLoad) return;
 
     let active = true;
-    console.log(`[AssetImage] Loading ${assetId}`);
 
     const loadImage = async () => {
       try {
@@ -46,15 +46,13 @@ export const AssetImage: React.FC<AssetImageProps> = ({ assetId, alt }) => {
         if (!active) return;
 
         if (asset) {
-          const url = assetService.createObjectURL(asset.blob);
-          setImageUrl(url);
+          setImageBlob(asset.blob);
           setLoading(false);
         } else {
           setError('Asset not found in IndexedDB');
           setLoading(false);
         }
       } catch (err: any) {
-        console.error(`[AssetImage] Error loading ${assetId}:`, err);
         if (active) {
           setError(err.message || 'Unknown error');
           setLoading(false);
@@ -66,32 +64,47 @@ export const AssetImage: React.FC<AssetImageProps> = ({ assetId, alt }) => {
 
     return () => {
       active = false;
-      if (imageUrl && imageUrl.startsWith('blob:')) {
-        console.log(`[AssetImage] Revoking URL: ${imageUrl}`);
-        assetService.revokeObjectURL(imageUrl);
-      }
     };
   }, [shouldLoad, assetId]);
 
+  // Memoize blob URL - only create once per blob
+  const imageUrl = useMemo(() => {
+    if (!imageBlob) return null;
+    return assetService.createObjectURL(imageBlob);
+  }, [imageBlob]);
+
+  // Cleanup blob URL when component unmounts or blob changes
+  useEffect(() => {
+    return () => {
+      if (imageUrl && imageUrl.startsWith('blob:')) {
+        assetService.revokeObjectURL(imageUrl);
+      }
+    };
+  }, [imageUrl]);
+
   if (!shouldLoad || loading) {
     return (
-      <div 
+      <span 
         ref={imgRef}
         className="flex items-center justify-center p-8 bg-stone-800/30 rounded-lg my-2 border border-stone-800 border-dashed min-h-[120px]"
+        style={{ display: 'block' }}
       >
         {shouldLoad && <Loader2 className="w-5 h-5 text-bhagwa animate-spin" />}
-      </div>
+      </span>
     );
   }
 
   if (error || !imageUrl) {
     return (
-      <div className="flex flex-col items-center justify-center p-4 bg-red-900/10 border border-red-900/30 rounded-lg my-2">
+      <span 
+        className="flex flex-col items-center justify-center p-4 bg-red-900/10 border border-red-900/30 rounded-lg my-2"
+        style={{ display: 'block' }}
+      >
         <ImageOff className="w-6 h-6 text-red-400 mb-2" />
         <span className="text-sm font-medium text-red-400">Image Error</span>
         <span className="text-xs text-red-400/70 font-mono mt-1">{error}</span>
         <span className="text-[10px] text-stone-500 mt-1">ID: {assetId}</span>
-      </div>
+      </span>
     );
   }
 
@@ -101,10 +114,12 @@ export const AssetImage: React.FC<AssetImageProps> = ({ assetId, alt }) => {
       alt={alt || 'Image'}
       className="max-w-full h-auto rounded-lg border border-stone-700 my-2 shadow-sm"
       loading="lazy"
-      onError={(_e) => {
-        console.error('[AssetImage] Browser refused to render Blob URL');
+      onError={() => {
         setError('Browser render error');
       }}
     />
   );
 };
+
+// Memoize to prevent unnecessary re-renders when parent updates
+export const AssetImage = React.memo(AssetImageComponent);

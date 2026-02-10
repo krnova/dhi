@@ -1,4 +1,4 @@
-import React, { useEffect, useState, useRef } from 'react';
+import React, { useEffect, useState, useRef, useMemo, } from 'react';
 import { Plus, Search, ChevronRight, Trash2, Eye, Edit3, Columns, MoreVertical, X, Hash, FolderOpen, Folder } from 'lucide-react';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
@@ -386,6 +386,44 @@ export const SmritiPage: React.FC = () => {
     return parts.length > 0 ? parts : text;
   };
 
+  // Memoize markdown components to prevent re-creation on every keystroke
+  const markdownComponents = useMemo(() => ({
+    h1: ({ node, ...props }: any) => <h1 className="text-2xl font-bold text-sand mb-3 mt-4" {...props} />,
+    h2: ({ node, ...props }: any) => <h2 className="text-xl font-bold text-sand mb-2 mt-4" {...props} />,
+    h3: ({ node, ...props }: any) => <h3 className="text-lg font-bold text-sand mb-2 mt-3" {...props} />,
+    p: ({ node, children, ...props }: any) => (
+      <p className="text-stone-300 mb-3 leading-relaxed text-sm" {...props}>
+        {React.Children.map(children, (child) => 
+          typeof child === 'string' ? renderWikiLinkText(child) : child
+        )}
+      </p>
+    ),
+    ul: ({ node, ...props }: any) => <ul className="list-disc list-inside text-stone-300 mb-3 space-y-1 text-sm" {...props} />,
+    ol: ({ node, ...props }: any) => <ol className="list-decimal list-inside text-stone-300 mb-3 space-y-1 text-sm" {...props} />,
+    code: ({ node, inline, ...props }: any) =>
+      inline
+        ? <code className="bg-stone-800 text-bhagwa px-1 py-0.5 rounded text-xs" {...props} />
+        : <code className="block bg-stone-800 text-sand p-3 rounded-lg overflow-x-auto mb-3 text-xs" {...props} />,
+    blockquote: ({ node, ...props }: any) => <blockquote className="border-l-2 border-bhagwa pl-3 italic text-stone-400 mb-3 text-sm" {...props} />,
+    a: ({ node, href, children, ...props }: any) => (
+      <a
+        href={href}
+        className="text-bhagwa hover:text-orange-400 underline underline-offset-2 cursor-pointer transition-colors duration-200"
+        target="_blank"
+        rel="noopener noreferrer"
+        {...props}
+      >
+        {children}
+      </a>
+    ),
+    img: ({ node, src, alt, ...props }: any) => {
+      if (!src) return null;
+      const assetId = extractAssetId(src);
+      if (assetId) return <AssetImage assetId={assetId} alt={alt} />;
+      return <img src={src} alt={alt} className="max-w-full h-auto rounded-lg my-2" {...props} />;
+    },
+  }), []);
+
   // ── Loading ──
   if (isLoading) {
     return (
@@ -739,42 +777,7 @@ export const SmritiPage: React.FC = () => {
                           <ReactMarkdown
                             remarkPlugins={[remarkGfm]}
                             urlTransform={(value) => value}
-                            components={{
-                              h1: ({ node, ...props }) => <h1 className="text-2xl font-bold text-sand mb-3 mt-4" {...props} />,
-                              h2: ({ node, ...props }) => <h2 className="text-xl font-bold text-sand mb-2 mt-4" {...props} />,
-                              h3: ({ node, ...props }) => <h3 className="text-lg font-bold text-sand mb-2 mt-3" {...props} />,
-              p: ({ node, children, ...props }) => (
-                <p className="text-stone-300 mb-3 leading-relaxed text-sm" {...props}>
-                  {React.Children.map(children, (child) => 
-                    typeof child === 'string' ? renderWikiLinkText(child) : child
-                  )}
-                </p>
-              ),
-                              ul: ({ node, ...props }) => <ul className="list-disc list-inside text-stone-300 mb-3 space-y-1 text-sm" {...props} />,
-                              ol: ({ node, ...props }) => <ol className="list-decimal list-inside text-stone-300 mb-3 space-y-1 text-sm" {...props} />,
-                              code: ({ node, inline, ...props }: any) =>
-                                inline
-                                  ? <code className="bg-stone-800 text-bhagwa px-1 py-0.5 rounded text-xs" {...props} />
-                                  : <code className="block bg-stone-800 text-sand p-3 rounded-lg overflow-x-auto mb-3 text-xs" {...props} />,
-                              blockquote: ({ node, ...props }) => <blockquote className="border-l-2 border-bhagwa pl-3 italic text-stone-400 mb-3 text-sm" {...props} />,
-                              a: ({ node, href, children, ...props }) => (
-                                <a
-                                  href={href}
-                                  className="text-bhagwa hover:text-orange-400 underline underline-offset-2 cursor-pointer transition-colors duration-200"
-                                  target="_blank"
-                                  rel="noopener noreferrer"
-                                  {...props}
-                                >
-                                  {children}
-                                </a>
-                              ),
-                              img: ({ node, src, alt, ...props }) => {
-                                if (!src) return null;
-                                const assetId = extractAssetId(src);
-                                if (assetId) return <AssetImage assetId={assetId} alt={alt} />;
-                                return <img src={src} alt={alt} className="max-w-full h-auto rounded-lg my-2" {...props} />;
-                              },
-                            }}
+                            components={markdownComponents}
                           >
                             {currentNote.content || '*No content yet*'}
                           </ReactMarkdown>

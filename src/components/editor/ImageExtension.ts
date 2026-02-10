@@ -70,7 +70,7 @@ export const CustomImage = Node.create<ImageOptions>({
     // For DHI assets, we render a span placeholder.
     // The ReactNodeView (ImageComponent) immediately takes over rendering.
     // This prevents the browser from trying to fetch 'dhi-asset://' and throwing errors.
-    if (src && (src.startsWith('dhi-asset://') || src.startsWith('asset:'))) {
+    if (src && src.startsWith('dhi-asset://')) {
       return [
         'span', 
         mergeAttributes(this.options.HTMLAttributes, rest, { 
