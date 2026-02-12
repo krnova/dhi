@@ -19,6 +19,7 @@
     "@capacitor/android": "^8.0.2",
     "@capacitor/cli": "^8.0.2",
     "@capacitor/core": "^8.0.2",
+    "@capacitor/geolocation": "^8.1.0",
     "@fontsource/inter": "^5.2.8",
     "@tiptap/extension-code-block-lowlight": "^3.15.3",
     "@tiptap/extension-image": "^3.15.3",

@@ -2,6 +2,7 @@ import { create } from 'zustand';
 import type { AppSettings } from '../types/storage';
 import { LocalStorageAdapter } from '../services/LocalStorageAdapter';
 import { getDefaultLocation } from '../utils/jyotish';
+import { Geolocation } from '@capacitor/geolocation';
 
 interface SettingsState {
   settings: AppSettings;
@@ -51,38 +52,30 @@ export const useSettingsStore = create<SettingsState>((set, get) => ({
     }
   },
 
+  // This is the FIXED hybrid logic that works on both Android and Web
   requestLocation: async () => {
     try {
-      if ('geolocation' in navigator) {
-        navigator.geolocation.getCurrentPosition(
-          (position) => {
-            const location = {
-              latitude: position.coords.latitude,
-              longitude: position.coords.longitude,
-              manual: false,
-            };
-            get().updateSettings({ location });
-          },
-          (error) => {
-            console.error('Geolocation error:', error);
-            const defaultLoc = getDefaultLocation();
-            const location = {
-              ...defaultLoc,
-              manual: false,
-            };
-            get().updateSettings({ location });
-          }
-        );
-      } else {
-        const defaultLoc = getDefaultLocation();
-        const location = {
-          ...defaultLoc,
-          manual: false,
-        };
-        get().updateSettings({ location });
-      }
+      // 1. Ask the Native OS (Android) or Browser for location
+      const position = await Geolocation.getCurrentPosition();
+
+      // 2. Success! Format the data
+      const location = {
+        latitude: position.coords.latitude,
+        longitude: position.coords.longitude,
+        manual: false,
+      };
+      
+      // 3. Save to store
+      get().updateSettings({ location });
+
     } catch (error) {
-      console.error('Failed to request location:', error);
+      console.error('Location failed or denied:', error);
+      
+      // 4. Fallback to default (Delhi) only if permission is denied
+      const defaultLoc = getDefaultLocation();
+      get().updateSettings({ 
+        location: { ...defaultLoc, manual: false } 
+      });
     }
   },
 }));
