@@ -102,7 +102,10 @@ export const DataManagementSection: React.FC = () => {
           <div className="flex-1 min-w-0">
             <p className="text-sm font-medium text-green-400">Export Successful</p>
             <p className="text-xs text-stone-400 mt-0.5">
-              Your backup has been downloaded. Check your Downloads folder.
+              Your backup has been saved. Check your <span className="font-medium text-stone-300">
+                {typeof window !== 'undefined' && (window as any).Capacitor?.isNativePlatform?.() 
+                  ? 'Documents' 
+                  : 'Downloads'}</span> folder.
             </p>
           </div>
         </div>
@@ -241,8 +244,13 @@ export const DataManagementSection: React.FC = () => {
         <div className="flex items-start gap-2">
           <AlertCircle className="w-3.5 h-3.5 text-stone-500 flex-shrink-0 mt-0.5" />
           <div className="text-xs text-stone-500 leading-relaxed">
-            All data is stored locally on your device. Backups ensure you never lose your notes.
-            For maximum safety, keep backups in multiple locations (cloud storage, external drive).
+            All data is stored locally on your device. Backups are saved to your{' '}
+            <span className="font-medium text-stone-400">
+              {typeof window !== 'undefined' && (window as any).Capacitor?.isNativePlatform?.() 
+                ? 'Documents' 
+                : 'Downloads'}
+            </span> folder.
+            For maximum safety, keep backups in multiple locations.
           </div>
         </div>
       </div>
