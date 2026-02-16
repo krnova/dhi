@@ -132,7 +132,7 @@ export async function exportFullBackup(
 
     // Gather all data from storage
     const notes = await db.getAllFromStore<Note>('notes');
-    const folders = await storage.get<Folder[]>('folders') || [];
+    const folders = await db.get<Folder[]>('folders') || [];
     const assets = await db.getAllFromStore<Asset>('assets');
     const settings = await storage.get<AppSettings>('settings');
 
@@ -263,7 +263,7 @@ export async function exportMarkdownArchive(
     onProgress?.({ stage: 'gathering', percent: 0, message: 'Loading notes...' });
 
     const notes = await db.getAllFromStore<Note>('notes');
-    const folders = await storage.get<Folder[]>('folders') || [];
+    const folders = await db.get<Folder[]>('folders') || [];
     const assets = await db.getAllFromStore<Asset>('assets');
 
     onProgress?.({ stage: 'gathering', percent: 25, message: `Processing ${notes.length} notes...` });
@@ -375,7 +375,7 @@ export async function exportSingleNote(noteId: string): Promise<{ blob: Blob; fi
       throw new Error('Note not found');
     }
 
-    const folders = await storage.get<Folder[]>('folders') || [];
+    const folders = await db.get<Folder[]>('folders') || [];
     const allAssets = await db.getAllFromStore<Asset>('assets');
     
     // Find assets referenced by this note
