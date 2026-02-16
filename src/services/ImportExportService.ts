@@ -1,12 +1,17 @@
 // Import/Export Service - Data Liberation for DHI
 import JSZip from 'jszip';
 import { saveAs } from 'file-saver';
+import { Filesystem, Directory } from '@capacitor/filesystem';
+import { Capacitor } from '@capacitor/core';
 import { IndexedDBAdapter } from './IndexedDBAdapter';
 import { LocalStorageAdapter } from './LocalStorageAdapter';
 import type { Note, Folder, Asset, AppSettings } from '../types/storage';
 
 const db = new IndexedDBAdapter();
 const storage = new LocalStorageAdapter();
+
+// Platform detection
+const isNativePlatform = Capacitor.isNativePlatform();
 
 // ═══════════════════════════════════════════════════════════════════════════
 // TYPES
@@ -113,6 +118,44 @@ function getFolderPath(folderId: string | undefined, folders: Folder[]): string 
   return path.join('/');
 }
 
+/**
+ * Save file to device (platform-aware)
+ * Uses Capacitor Filesystem on native, file-saver on web
+ */
+async function saveFile(blob: Blob, filename: string): Promise<void> {
+  if (isNativePlatform) {
+    // Native platform (Android/iOS) - use Capacitor Filesystem
+    try {
+      // Convert Blob to base64
+      const reader = new FileReader();
+      const base64Data = await new Promise<string>((resolve, reject) => {
+        reader.onloadend = () => {
+          const base64 = (reader.result as string).split(',')[1];
+          resolve(base64);
+        };
+        reader.onerror = reject;
+        reader.readAsDataURL(blob);
+      });
+
+      // Write to Downloads directory
+      await Filesystem.writeFile({
+        path: filename,
+        data: base64Data,
+        directory: Directory.Documents, // Falls back to accessible location
+        recursive: true,
+      });
+
+      console.log(`File saved to Documents/${filename}`);
+    } catch (error) {
+      console.error('Capacitor file save failed:', error);
+      throw new Error(`Failed to save file on device: ${error instanceof Error ? error.message : 'Unknown error'}`);
+    }
+  } else {
+    // Web platform - use file-saver
+    saveAs(blob, filename);
+  }
+}
+
 // ═══════════════════════════════════════════════════════════════════════════
 // EXPORT: DHI JSON BACKUP (Complete Fidelity)
 // ═══════════════════════════════════════════════════════════════════════════
@@ -132,7 +175,7 @@ export async function exportFullBackup(
 
     // Gather all data from storage
     const notes = await db.getAllFromStore<Note>('notes');
-    const folders = await db.get<Folder[]>('folders') || [];
+    const folders = await db.get<Folder[]>('folders') || []; // Fixed: Use IndexedDB, not LocalStorage
     const assets = await db.getAllFromStore<Asset>('assets');
     const settings = await storage.get<AppSettings>('settings');
 
@@ -239,7 +282,8 @@ export async function downloadFullBackup(
 ): Promise<void> {
   const blob = await exportFullBackup(onProgress);
   const filename = `dhi-backup-${formatDateForFilename()}.zip`;
-  saveAs(blob, filename);
+  
+  await saveFile(blob, filename);
   
   // Store last backup timestamp
   await storage.set('lastBackupDate', Date.now());
@@ -263,7 +307,7 @@ export async function exportMarkdownArchive(
     onProgress?.({ stage: 'gathering', percent: 0, message: 'Loading notes...' });
 
     const notes = await db.getAllFromStore<Note>('notes');
-    const folders = await db.get<Folder[]>('folders') || [];
+    const folders = await db.get<Folder[]>('folders') || []; // Fixed: Use IndexedDB
     const assets = await db.getAllFromStore<Asset>('assets');
 
     onProgress?.({ stage: 'gathering', percent: 25, message: `Processing ${notes.length} notes...` });
@@ -354,7 +398,7 @@ export async function downloadMarkdownArchive(
 ): Promise<void> {
   const blob = await exportMarkdownArchive(onProgress);
   const filename = `dhi-notes-${formatDateForFilename()}.zip`;
-  saveAs(blob, filename);
+  await saveFile(blob, filename);
 }
 
 // ═══════════════════════════════════════════════════════════════════════════
@@ -375,7 +419,7 @@ export async function exportSingleNote(noteId: string): Promise<{ blob: Blob; fi
       throw new Error('Note not found');
     }
 
-    const folders = await db.get<Folder[]>('folders') || [];
+    const folders = await db.get<Folder[]>('folders') || []; // Fixed: Use IndexedDB
     const allAssets = await db.getAllFromStore<Asset>('assets');
     
     // Find assets referenced by this note
@@ -450,7 +494,7 @@ export async function exportSingleNote(noteId: string): Promise<{ blob: Blob; fi
  */
 export async function downloadSingleNote(noteId: string): Promise<void> {
   const { blob, filename } = await exportSingleNote(noteId);
-  saveAs(blob, filename);
+  await saveFile(blob, filename);
 }
 
 // ═══════════════════════════════════════════════════════════════════════════
