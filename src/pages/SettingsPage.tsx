@@ -1,6 +1,7 @@
 import React, { useEffect, useState } from 'react';
 import { Palette, Type, Zap, Info, Database, Edit3, MapPin, Hash } from 'lucide-react';
 import { useSettingsStore } from '../stores/settingsStore';
+import { DataManagementSection } from '../components/settings/DataManagementSection';
 import { TagPaletteSettings } from '../components/settings/TagPaletteSettings';
 import { DEFAULT_TAG_COLORS } from '../stores/notesStore';
 import { cn } from '../utils/cn';
@@ -128,6 +129,9 @@ export const SettingsPage: React.FC = () => {
             </p>
           </div>
         </section>
+
+        {/* Data Management Section */}
+        <DataManagementSection />
 
         {/* Editor Section */}
         <section className="card space-y-4">
