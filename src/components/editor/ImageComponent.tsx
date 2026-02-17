@@ -19,7 +19,6 @@ const ImageComponent = ({ node, deleteNode }: any) => {
         const assetId = extractAssetId(src);
         
         if (assetId) {
-          // It is a local asset
           const asset = await assetService.getAsset(assetId);
 
           if (!active) return;
@@ -33,7 +32,6 @@ const ImageComponent = ({ node, deleteNode }: any) => {
             setLoading(false);
           }
         } else {
-          // Regular URL
           if (active) {
             setImageUrl(src);
             setLoading(false);
@@ -97,30 +95,31 @@ const ImageComponent = ({ node, deleteNode }: any) => {
     );
   }
 
-  // REVERTED TO ORIGINAL DOM STRUCTURE
-  // No extra divs, no flex centering. Just the wrapper, image, and button.
   return (
-    <NodeViewWrapper 
-      className="my-2 relative group"
-      onMouseEnter={() => setShowDelete(true)}
-      onMouseLeave={() => setShowDelete(false)}
-    >
-      <img
-        src={imageUrl}
-        alt={node.attrs.alt || ''}
-        title={node.attrs.title || ''}
-        className="max-w-full h-auto rounded-lg border border-stone-700 bg-stone-900 block"
-      />
-      
-      {showDelete && (
-        <button
-          onClick={handleDelete}
-          className="absolute top-2 right-2 p-2 bg-red-500/90 hover:bg-red-600 rounded-lg transition-all shadow-lg backdrop-blur-sm"
-          title="Delete image"
-        >
-          <Trash2 className="w-4 h-4 text-white" />
-        </button>
-      )}
+    <NodeViewWrapper className="my-2">
+      {/* inline-block so absolute children are scoped to image dimensions */}
+      <span
+        className="relative inline-block group"
+        onMouseEnter={() => setShowDelete(true)}
+        onMouseLeave={() => setShowDelete(false)}
+      >
+        <img
+          src={imageUrl}
+          alt={node.attrs.alt || ''}
+          title={node.attrs.title || ''}
+          className="max-w-full h-auto rounded-lg border border-stone-700 bg-stone-900 block"
+        />
+        
+        {showDelete && (
+          <button
+            onClick={handleDelete}
+            className="absolute top-6 right-2 p-2 bg-red-500/90 hover:bg-red-600 rounded-lg transition-all shadow-lg backdrop-blur-sm"
+            title="Delete image"
+          >
+            <Trash2 className="w-4 h-4 text-white" />
+          </button>
+        )}
+      </span>
     </NodeViewWrapper>
   );
 };
