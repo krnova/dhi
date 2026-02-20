@@ -2,10 +2,12 @@
 import JSZip from 'jszip';
 import { saveAs } from 'file-saver';
 import { Filesystem, Directory } from '@capacitor/filesystem';
+import * as yaml from 'js-yaml';
+import { extractLinkedNoteIds } from '../utils/wikiLinks';
 import { Capacitor } from '@capacitor/core';
 import { IndexedDBAdapter } from './IndexedDBAdapter';
 import { LocalStorageAdapter } from './LocalStorageAdapter';
-import type { Note, Folder, Asset, AppSettings } from '../types/storage';
+import type { Note, Folder, Asset, AppSettings, ExportManifest, AssetMetadata, ImportPlan, ImportConflict, ImportWarning, Tag } from '../types/storage';
 
 const db = new IndexedDBAdapter();
 const storage = new LocalStorageAdapter();
@@ -547,4 +549,760 @@ export async function shouldRecommendBackup(): Promise<boolean> {
 
   const daysSinceBackup = (Date.now() - lastBackup) / (1000 * 60 * 60 * 24);
   return daysSinceBackup > 7;
+}
+
+/**
+ * Parse imported file and detect format
+ */
+export async function parseImportFile(file: File): Promise<ImportPlan> {
+  try {
+    // Check if it's a zip file
+    if (file.name.endsWith('.zip')) {
+      return await parseZipImport(file);
+    }
+    
+    // Check if it's a JSON file
+    if (file.name.endsWith('.json')) {
+      return await parseJSONImport(file);
+    }
+    
+    // Assume it's a Markdown file
+    if (file.name.endsWith('.md') || file.name.endsWith('.txt')) {
+      return await parseMarkdownImport(file);
+    }
+    
+    throw new Error('Unsupported file format. Please upload .zip, .json, or .md files.');
+    
+  } catch (error) {
+    console.error('Import parsing failed:', error);
+    throw new Error(`Failed to parse import file: ${error instanceof Error ? error.message : 'Unknown error'}`);
+  }
+}
+
+/**
+ * Parse DHI JSON backup (zip or standalone JSON)
+ */
+async function parseZipImport(file: File): Promise<ImportPlan> {
+  const zip = await JSZip.loadAsync(file);
+  
+  // Try to find manifest
+  const manifestFile = zip.file('dhi-backup.json');
+  if (!manifestFile) {
+    // Not a DHI backup, try as Markdown archive
+    return await parseMarkdownArchiveFromZip(zip);
+  }
+  
+  const manifestText = await manifestFile.async('text');
+  const manifest: ExportManifest = JSON.parse(manifestText);
+  
+  // Validate structure
+  if (!manifest.version || !Array.isArray(manifest.notes)) {
+    throw new Error('Invalid DHI backup format');
+  }
+  
+  // Extract assets from zip
+  const assets: { id: string; blob: Blob; metadata: AssetMetadata }[] = [];
+  const assetsFolder = zip.folder('assets');
+  
+  if (assetsFolder) {
+    for (const [filename, zipEntry] of Object.entries(assetsFolder.files)) {
+      if (!zipEntry.dir) {
+        const blob = await zipEntry.async('blob');
+        const assetId = filename.split('/').pop()!.split('.')[0]; // Extract ID from filename
+        
+        const metadata = manifest.assets.find(a => a.id === assetId);
+        if (metadata) {
+          assets.push({ id: assetId, blob, metadata });
+        }
+      }
+    }
+  }
+  
+  // Check for missing assets
+  const warnings: ImportWarning[] = [];
+  for (const assetMeta of manifest.assets) {
+    const found = assets.some(a => a.id === assetMeta.id);
+    if (!found) {
+      warnings.push({
+        type: 'missing_asset',
+        message: `Image "${assetMeta.name}" not found in backup`,
+        affectedNoteId: assetMeta.noteId,
+      });
+    }
+  }
+  
+  // Detect conflicts
+  const existingNotes = await db.getAllFromStore<Note>('notes');
+  const existingFolders = await db.get<Folder[]>('folders') || [];
+  const existingAssets = await db.getAllFromStore<Asset>('assets');
+  
+  const conflicts = await detectCollisions(
+    existingNotes,
+    existingFolders,
+    existingAssets,
+    manifest.notes,
+    manifest.folders,
+    assets.map(a => a.metadata)
+  );
+  
+  // Calculate total size
+  const totalSize = assets.reduce((sum, a) => sum + a.blob.size, 0);
+  
+  return {
+    notes: manifest.notes,
+    folders: manifest.folders,
+    assets,
+    conflicts,
+    warnings,
+    source: 'dhi-json',
+    totalSize,
+    containsSettings: !!manifest.settings,
+    settings: manifest.settings,
+  };
+}
+
+/**
+ * Parse standalone DHI JSON file
+ */
+async function parseJSONImport(file: File): Promise<ImportPlan> {
+  const text = await file.text();
+  const manifest: ExportManifest = JSON.parse(text);
+  
+  // Validate structure
+  if (!manifest.version || !Array.isArray(manifest.notes)) {
+    throw new Error('Invalid DHI backup format');
+  }
+  
+  // No assets in standalone JSON
+  const warnings: ImportWarning[] = manifest.assets.map(a => ({
+    type: 'missing_asset' as const,
+    message: `Image "${a.name}" not included (standalone JSON has no assets)`,
+    affectedNoteId: a.noteId,
+  }));
+  
+  // Detect conflicts
+  const existingNotes = await db.getAllFromStore<Note>('notes');
+  const existingFolders = await db.get<Folder[]>('folders') || [];
+  const existingAssets = await db.getAllFromStore<Asset>('assets');
+  
+  const conflicts = await detectCollisions(
+    existingNotes,
+    existingFolders,
+    existingAssets,
+    manifest.notes,
+    manifest.folders,
+    []
+  );
+  
+  return {
+    notes: manifest.notes,
+    folders: manifest.folders,
+    assets: [],
+    conflicts,
+    warnings,
+    source: 'dhi-json',
+    totalSize: 0,
+    containsSettings: !!manifest.settings,
+    settings: manifest.settings,
+  };
+}
+
+/**
+ * Parse DHI Markdown archive from zip
+ */
+async function parseMarkdownArchiveFromZip(zip: JSZip): Promise<ImportPlan> {
+  const notes: Note[] = [];
+  const folders: Folder[] = [];
+  const assets: { id: string; blob: Blob; metadata: AssetMetadata }[] = [];
+  const warnings: ImportWarning[] = [];
+  
+  // Extract assets first
+  const assetsFolder = zip.folder('assets');
+  if (assetsFolder) {
+    for (const [filename, zipEntry] of Object.entries(assetsFolder.files)) {
+      if (!zipEntry.dir) {
+        const blob = await zipEntry.async('blob');
+        const assetId = filename.split('/').pop()!.split('.')[0];
+        const ext = filename.split('.').pop() || 'bin';
+        
+        assets.push({
+          id: assetId,
+          blob,
+          metadata: {
+            id: assetId,
+            noteId: '', // Will be set when processing notes
+            type: 'image',
+            name: filename,
+            filename,
+            size: blob.size,
+            mimeType: getMimeTypeFromExtension(ext),
+            createdAt: Date.now(),
+          },
+        });
+      }
+    }
+  }
+  
+  // Process markdown files
+  const folderPathMap = new Map<string, string>(); // path -> folderId
+  
+  for (const [filepath, zipEntry] of Object.entries(zip.files)) {
+    if (zipEntry.dir || !filepath.endsWith('.md') || filepath.startsWith('assets/')) {
+      continue;
+    }
+    
+    const content = await zipEntry.async('text');
+    
+    // Parse frontmatter
+    const frontmatterMatch = content.match(/^---\n([\s\S]*?)\n---\n([\s\S]*)$/);
+    if (!frontmatterMatch) {
+      warnings.push({
+        type: 'malformed_frontmatter',
+        message: `No frontmatter found in "${filepath}"`,
+      });
+      continue;
+    }
+    
+    const frontmatter = yaml.load(frontmatterMatch[1]) as any;
+    const noteContent = frontmatterMatch[2];
+    
+    // Extract folder from filepath
+    const pathParts = filepath.split('/');
+    const filename = pathParts.pop()!;
+    const folderPath = pathParts.join('/');
+    
+    let folderId: string | undefined;
+    if (folderPath) {
+      // Create folder hierarchy if needed
+      if (!folderPathMap.has(folderPath)) {
+        const newFolderId = frontmatter.folderId || generateId();
+        folders.push({
+          id: newFolderId,
+          name: pathParts[pathParts.length - 1],
+          parentId: undefined, // TODO: Handle nested folders
+          createdAt: Date.now(),
+        });
+        folderPathMap.set(folderPath, newFolderId);
+      }
+      folderId = folderPathMap.get(folderPath);
+    }
+    
+    // Parse tags
+    const tags: Tag[] = [];
+    if (frontmatter.tags) {
+      if (Array.isArray(frontmatter.tags)) {
+        for (const tag of frontmatter.tags) {
+          if (typeof tag === 'object' && tag.name) {
+            // DHI format with colors
+            tags.push({ name: tag.name, color: tag.color || getNextColorForImport() });
+          } else if (typeof tag === 'string') {
+            // Simple string format
+            tags.push({ name: tag, color: getNextColorForImport() });
+          }
+        }
+      }
+    }
+    
+    // Create note
+    const note: Note = {
+      id: frontmatter.id || generateId(),
+      title: frontmatter.title || filename.replace('.md', ''),
+      content: noteContent,
+      tags,
+      folderId,
+      createdAt: frontmatter.created ? new Date(frontmatter.created).getTime() : Date.now(),
+      updatedAt: frontmatter.updated ? new Date(frontmatter.updated).getTime() : Date.now(),
+      linkedNotes: frontmatter.linkedNotes || extractLinkedNoteIds(noteContent),
+    };
+    
+    notes.push(note);
+  }
+  
+  // Update asset noteId references
+  for (const asset of assets) {
+    const note = notes.find(n => n.content.includes(`dhi-asset://${asset.id}`));
+    if (note) {
+      asset.metadata.noteId = note.id;
+    }
+  }
+  
+  // Detect conflicts
+  const existingNotes = await db.getAllFromStore<Note>('notes');
+  const existingFolders = await db.get<Folder[]>('folders') || [];
+  const existingAssets = await db.getAllFromStore<Asset>('assets');
+  
+  const conflicts = await detectCollisions(
+    existingNotes,
+    existingFolders,
+    existingAssets,
+    notes,
+    folders,
+    assets.map(a => a.metadata)
+  );
+  
+  const totalSize = assets.reduce((sum, a) => sum + a.blob.size, 0);
+  
+  return {
+    notes,
+    folders,
+    assets,
+    conflicts,
+    warnings,
+    source: 'dhi-markdown',
+    totalSize,
+    containsSettings: false,
+  };
+}
+
+/**
+ * Parse single Markdown file
+ */
+async function parseMarkdownImport(file: File): Promise<ImportPlan> {
+  const content = await file.text();
+  const warnings: ImportWarning[] = [];
+  
+  // Try to parse frontmatter
+  const frontmatterMatch = content.match(/^---\n([\s\S]*?)\n---\n([\s\S]*)$/);
+  
+  let frontmatter: any = {};
+  let noteContent = content;
+  
+  if (frontmatterMatch) {
+    try {
+      frontmatter = yaml.load(frontmatterMatch[1]) as any;
+      noteContent = frontmatterMatch[2];
+    } catch (error) {
+      warnings.push({
+        type: 'malformed_frontmatter',
+        message: 'Could not parse frontmatter, using defaults',
+      });
+    }
+  }
+  
+  // Parse tags
+  const tags: Tag[] = [];
+  if (frontmatter.tags) {
+    if (Array.isArray(frontmatter.tags)) {
+      for (const tag of frontmatter.tags) {
+        if (typeof tag === 'object' && tag.name) {
+          tags.push({ name: tag.name, color: tag.color || getNextColorForImport() });
+        } else if (typeof tag === 'string') {
+          tags.push({ name: tag, color: getNextColorForImport() });
+        }
+      }
+    }
+  }
+  
+  // Create note
+  const note: Note = {
+    id: frontmatter.id || generateId(),
+    title: frontmatter.title || file.name.replace(/\.(md|txt)$/, ''),
+    content: noteContent,
+    tags,
+    folderId: frontmatter.folderId,
+    createdAt: frontmatter.created ? new Date(frontmatter.created).getTime() : Date.now(),
+    updatedAt: frontmatter.updated ? new Date(frontmatter.updated).getTime() : Date.now(),
+    linkedNotes: frontmatter.linkedNotes || extractLinkedNoteIds(noteContent),
+  };
+  
+  // Detect conflicts
+  const existingNotes = await db.getAllFromStore<Note>('notes');
+  const existingFolders = await db.get<Folder[]>('folders') || [];
+  const existingAssets = await db.getAllFromStore<Asset>('assets');
+  
+  const conflicts = await detectCollisions(
+    existingNotes,
+    existingFolders,
+    existingAssets,
+    [note],
+    [],
+    []
+  );
+  
+  return {
+    notes: [note],
+    folders: [],
+    assets: [],
+    conflicts,
+    warnings,
+    source: 'external-markdown',
+    totalSize: 0,
+    containsSettings: false,
+  };
+}
+
+// ═══════════════════════════════════════════════════════════════════════════
+// COLLISION DETECTION
+// ═══════════════════════════════════════════════════════════════════════════
+
+/**
+ * Detect ID collisions and build conflict list
+ */
+async function detectCollisions(
+  existingNotes: Note[],
+  existingFolders: Folder[],
+  existingAssets: Asset[],
+  importedNotes: Note[],
+  importedFolders: Folder[],
+  importedAssets: AssetMetadata[]
+): Promise<ImportConflict[]> {
+  
+  const conflicts: ImportConflict[] = [];
+  
+  // Check note collisions
+  for (const note of importedNotes) {
+    const existing = existingNotes.find(n => n.id === note.id);
+    if (existing) {
+      // Collision detected - check if content matches
+      if (existing.content === note.content && existing.title === note.title) {
+        // Same note - skip
+        conflicts.push({
+          type: 'note',
+          oldId: note.id,
+          title: note.title,
+          action: 'skip',
+          reason: 'Note already exists with identical content',
+        });
+      } else {
+        // Different note - regenerate
+        conflicts.push({
+          type: 'note',
+          oldId: note.id,
+          newId: generateId(),
+          title: note.title,
+          action: 'regenerate',
+          reason: 'Note ID collision with different content',
+        });
+      }
+    }
+  }
+  
+  // Check folder collisions
+  for (const folder of importedFolders) {
+    const existing = existingFolders.find(f => f.id === folder.id);
+    if (existing) {
+      conflicts.push({
+        type: 'folder',
+        oldId: folder.id,
+        newId: generateId(),
+        title: folder.name,
+        action: 'regenerate',
+        reason: 'Folder ID collision',
+      });
+    }
+  }
+  
+  // Check asset collisions
+  for (const asset of importedAssets) {
+    const existing = existingAssets.find(a => a.id === asset.id);
+    if (existing) {
+      conflicts.push({
+        type: 'asset',
+        oldId: asset.id,
+        newId: generateAssetId(),
+        title: asset.name,
+        action: 'regenerate',
+        reason: 'Asset ID collision',
+      });
+    }
+  }
+  
+  return conflicts;
+}
+
+// ═══════════════════════════════════════════════════════════════════════════
+// HELPER FUNCTIONS
+// ═══════════════════════════════════════════════════════════════════════════
+
+/**
+ * Generate asset ID (same format as notes)
+ */
+function generateAssetId(): string {
+  const now = new Date();
+  const date = `${String(now.getDate()).padStart(2, '0')}${String(now.getMonth() + 1).padStart(2, '0')}${String(now.getFullYear()).slice(-2)}`;
+  const time = `${String(now.getHours()).padStart(2, '0')}${String(now.getMinutes()).padStart(2, '0')}${String(now.getSeconds()).padStart(2, '0')}`;
+  const random = Math.random().toString(36).substr(2, 3);
+  return `asset-${date}-${time}-${random}`;
+}
+
+/**
+ * Generate note/folder ID (reuse existing function)
+ */
+function generateId(): string {
+  const now = new Date();
+  const date = `${String(now.getDate()).padStart(2, '0')}${String(now.getMonth() + 1).padStart(2, '0')}${String(now.getFullYear()).slice(-2)}`;
+  const time = `${String(now.getHours()).padStart(2, '0')}${String(now.getMinutes()).padStart(2, '0')}${String(now.getSeconds()).padStart(2, '0')}`;
+  const random = Math.random().toString(36).substr(2, 3);
+  return `note-${date}-${time}-${random}`;
+}
+
+/**
+ * Get MIME type from file extension
+ */
+function getMimeTypeFromExtension(ext: string): string {
+  const map: Record<string, string> = {
+    'png': 'image/png',
+    'jpg': 'image/jpeg',
+    'jpeg': 'image/jpeg',
+    'gif': 'image/gif',
+    'webp': 'image/webp',
+    'svg': 'image/svg+xml',
+  };
+  return map[ext.toLowerCase()] || 'application/octet-stream';
+}
+
+/**
+ * Get next color from palette for imported tags
+ */
+function getNextColorForImport(): string {
+  const DEFAULT_TAG_COLORS = [
+    '#ef4444', '#f97316', '#f59e0b', '#84cc16', '#10b981',
+    '#06b6d4', '#3b82f6', '#8b5cf6', '#ec4899', '#f43f5e',
+  ];
+  const index = Math.floor(Math.random() * DEFAULT_TAG_COLORS.length);
+  return DEFAULT_TAG_COLORS[index];
+}
+
+/**
+ * Apply ID remapping to notes (update wiki links and asset references)
+ */
+function remapNoteReferences(
+  notes: Note[],
+  idMappings: Map<string, string>
+): Note[] {
+  return notes.map(note => {
+    let content = note.content;
+    
+    // Update wiki links: [[old-id|text]] → [[new-id|text]]
+    idMappings.forEach((newId, oldId) => {
+      const regex = new RegExp(
+        `\\[\\[${escapeRegex(oldId)}(\\|[^\\]]+)?\\]\\]`,
+        'g'
+      );
+      content = content.replace(regex, `[[${newId}$1]]`);
+    });
+    
+    // Update asset references: dhi-asset://old-id → dhi-asset://new-id
+    idMappings.forEach((newId, oldId) => {
+      if (oldId.startsWith('asset-')) {
+        content = content.replace(
+          new RegExp(`dhi-asset://${escapeRegex(oldId)}`, 'g'),
+          `dhi-asset://${newId}`
+        );
+      }
+    });
+    
+    // Recompute linkedNotes
+    const linkedNotes = extractLinkedNoteIds(content);
+    
+    return { ...note, content, linkedNotes };
+  });
+}
+
+/**
+ * Escape special regex characters
+ */
+function escapeRegex(str: string): string {
+  return str.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+}
+
+/**
+ * Topological sort folders (parents before children)
+ */
+function topologicalSortFolders(folders: Folder[]): Folder[] {
+  const sorted: Folder[] = [];
+  const visited = new Set<string>();
+  const visiting = new Set<string>();
+  
+  function visit(folder: Folder) {
+    if (visited.has(folder.id)) return;
+    if (visiting.has(folder.id)) {
+      console.warn(`Circular dependency in folder: ${folder.id}`);
+      return;
+    }
+    
+    visiting.add(folder.id);
+    
+    // Visit parent first
+    if (folder.parentId) {
+      const parent = folders.find(f => f.id === folder.parentId);
+      if (parent) visit(parent);
+    }
+    
+    visiting.delete(folder.id);
+    visited.add(folder.id);
+    sorted.push(folder);
+  }
+  
+  // Visit all folders
+  folders.forEach(visit);
+  
+  return sorted;
+}
+
+/**
+ * Execute import based on plan
+ */
+export async function executeImport(
+  plan: ImportPlan,
+  restoreSettings: boolean = false
+): Promise<ImportResult> {
+  
+  const result: ImportResult = {
+    success: false,
+    notesImported: 0,
+    notesSkipped: 0,
+    notesRegenerated: 0,
+    foldersCreated: 0,
+    assetsImported: 0,
+    conflicts: plan.conflicts,
+    warnings: plan.warnings,
+    errors: [],
+    settingsRestored: false,
+  };
+  
+  try {
+    // Build ID mapping from conflicts
+    const idMappings = new Map<string, string>();
+    for (const conflict of plan.conflicts) {
+      if (conflict.action === 'regenerate' && conflict.newId) {
+        idMappings.set(conflict.oldId, conflict.newId);
+      }
+    }
+    
+    // Apply ID remapping to notes
+    let notesToImport = remapNoteReferences(plan.notes, idMappings);
+    
+    // Apply ID changes to notes themselves
+    notesToImport = notesToImport.map(note => {
+      const conflict = plan.conflicts.find(c => c.oldId === note.id && c.type === 'note');
+      if (conflict?.action === 'regenerate' && conflict.newId) {
+        return { ...note, id: conflict.newId };
+      }
+      return note;
+    });
+    
+    // Apply ID changes to folders
+    let foldersToImport = plan.folders.map(folder => {
+      const conflict = plan.conflicts.find(c => c.oldId === folder.id && c.type === 'folder');
+      if (conflict?.action === 'regenerate' && conflict.newId) {
+        // Update folder ID
+        const newFolder = { ...folder, id: conflict.newId };
+        
+        // Update parentId if parent was also regenerated
+        if (newFolder.parentId && idMappings.has(newFolder.parentId)) {
+          newFolder.parentId = idMappings.get(newFolder.parentId);
+        }
+        
+        return newFolder;
+      }
+      return folder;
+    });
+    
+    // Update note folder references
+    notesToImport = notesToImport.map(note => {
+      if (note.folderId && idMappings.has(note.folderId)) {
+        return { ...note, folderId: idMappings.get(note.folderId) };
+      }
+      return note;
+    });
+    
+    // Apply ID changes to assets
+    let assetsToImport = plan.assets.map(asset => {
+      const conflict = plan.conflicts.find(c => c.oldId === asset.id && c.type === 'asset');
+      if (conflict?.action === 'regenerate' && conflict.newId) {
+        return {
+          ...asset,
+          id: conflict.newId,
+          metadata: { ...asset.metadata, id: conflict.newId }
+        };
+      }
+      return asset;
+    });
+    
+    // Update asset noteId references if note IDs were regenerated
+    assetsToImport = assetsToImport.map(asset => {
+      if (idMappings.has(asset.metadata.noteId)) {
+        return {
+          ...asset,
+          metadata: { ...asset.metadata, noteId: idMappings.get(asset.metadata.noteId)! }
+        };
+      }
+      return asset;
+    });
+    
+    // 1. Import folders (topologically sorted)
+    const sortedFolders = topologicalSortFolders(foldersToImport);
+    const currentFolders = await db.get<Folder[]>('folders') || [];
+    
+    for (const folder of sortedFolders) {
+      const skipConflict = plan.conflicts.find(
+        c => c.oldId === folder.id && c.action === 'skip'
+      );
+      
+      if (!skipConflict && !currentFolders.some(f => f.id === folder.id)) {
+        currentFolders.push(folder);
+        result.foldersCreated++;
+      }
+    }
+    await db.set('folders', currentFolders);
+    
+    // 2. Import assets
+    for (const asset of assetsToImport) {
+      const skipConflict = plan.conflicts.find(
+        c => c.oldId === asset.id && c.action === 'skip'
+      );
+      
+      if (!skipConflict) {
+        await db.setInStore('assets', {
+          id: asset.id,
+          noteId: asset.metadata.noteId,
+          type: asset.metadata.type,
+          name: asset.metadata.name,
+          blob: asset.blob,
+          size: asset.metadata.size,
+          mimeType: asset.metadata.mimeType,
+          createdAt: asset.metadata.createdAt,
+        });
+        result.assetsImported++;
+      }
+    }
+    
+    // 3. Import notes
+    for (const note of notesToImport) {
+      const conflict = plan.conflicts.find(c => c.oldId === note.id && c.type === 'note');
+      
+      if (conflict?.action === 'skip') {
+        result.notesSkipped++;
+      } else if (conflict?.action === 'regenerate') {
+        await db.setInStore('notes', note);
+        result.notesRegenerated++;
+      } else {
+        await db.setInStore('notes', note);
+        result.notesImported++;
+      }
+    }
+    
+    // 4. Optional: Restore settings
+    if (restoreSettings && plan.containsSettings && plan.settings) {
+      const currentSettings = await storage.get<AppSettings>('settings');
+      if (currentSettings) {
+        await storage.set('settings', {
+          ...currentSettings,
+          ...plan.settings,
+          // Never overwrite onboarding state
+          hasCompletedOnboarding: currentSettings.hasCompletedOnboarding,
+        });
+        result.settingsRestored = true;
+      }
+    }
+    
+    result.success = true;
+    
+  } catch (error) {
+    result.errors.push(error instanceof Error ? error.message : 'Unknown error');
+    console.error('Import execution failed:', error);
+  }
+  
+  return result;
 }

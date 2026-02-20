@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { Download, FileArchive, AlertCircle, CheckCircle } from 'lucide-react';
 import { cn } from '../../utils/cn';
 import {
@@ -6,7 +6,11 @@ import {
   downloadMarkdownArchive,
   getLastBackupMessage,
   shouldRecommendBackup,
-  type ExportProgress
+  parseImportFile,
+  executeImport,
+  type ExportProgress,
+  type ImportPlan,
+  type ImportResult,
 } from '../../services/ImportExportService';
 
 export const DataManagementSection: React.FC = () => {
@@ -16,6 +20,12 @@ export const DataManagementSection: React.FC = () => {
   const [needsBackup, setNeedsBackup] = useState(false);
   const [exportError, setExportError] = useState<string | null>(null);
   const [exportSuccess, setExportSuccess] = useState(false);
+  
+  // Import state
+  const [isImporting, setIsImporting] = useState(false);
+  const [importError, setImportError] = useState<string | null>(null);
+  const [importSuccess, setImportSuccess] = useState(false);
+  const fileInputRef = useRef<HTMLInputElement>(null);
 
   // Load last backup info
   useEffect(() => {
@@ -72,6 +82,49 @@ export const DataManagementSection: React.FC = () => {
     }
   };
 
+  const handleImportClick = () => {
+    fileInputRef.current?.click();
+  };
+
+  const handleFileSelect = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+
+    setIsImporting(true);
+    setImportError(null);
+    setImportSuccess(false);
+
+    try {
+      console.log('📋 Parsing import file...');
+      const plan = await parseImportFile(file);
+      console.log('✅ Plan created:', plan);
+
+      // For now, auto-execute (no preview modal yet)
+      console.log('⚡ Executing import...');
+      const result = await executeImport(plan, false);
+      console.log('✅ Import complete:', result);
+
+      if (result.success) {
+        setImportSuccess(true);
+        setTimeout(() => setImportSuccess(false), 3000);
+        
+        // Reload the page to show imported notes
+        setTimeout(() => window.location.reload(), 1000);
+      } else {
+        setImportError(result.errors.join(', ') || 'Import failed');
+      }
+    } catch (error) {
+      console.error('Import failed:', error);
+      setImportError(error instanceof Error ? error.message : 'Import failed');
+    } finally {
+      setIsImporting(false);
+      // Reset file input
+      if (fileInputRef.current) {
+        fileInputRef.current.value = '';
+      }
+    }
+  };
+
   return (
     <section className="card space-y-4">
       <div className="flex items-center gap-2 pb-3 border-b border-stone-800">
@@ -111,13 +164,36 @@ export const DataManagementSection: React.FC = () => {
         </div>
       )}
 
-      {/* Error Message */}
+      {/* Import Success Message */}
+      {importSuccess && (
+        <div className="p-3 rounded-lg bg-green-900/10 border border-green-900/30 flex items-start gap-2 animate-in">
+          <CheckCircle className="w-4 h-4 text-green-400 flex-shrink-0 mt-0.5" />
+          <div className="flex-1 min-w-0">
+            <p className="text-sm font-medium text-green-400">Import Successful</p>
+            <p className="text-xs text-stone-400 mt-0.5">
+              Your notes have been imported. Reloading...
+            </p>
+          </div>
+        </div>
+      )}
+
+      {/* Error Messages */}
       {exportError && (
         <div className="p-3 rounded-lg bg-red-900/10 border border-red-900/30 flex items-start gap-2">
           <AlertCircle className="w-4 h-4 text-red-400 flex-shrink-0 mt-0.5" />
           <div className="flex-1 min-w-0">
             <p className="text-sm font-medium text-red-400">Export Failed</p>
             <p className="text-xs text-stone-400 mt-0.5">{exportError}</p>
+          </div>
+        </div>
+      )}
+
+      {importError && (
+        <div className="p-3 rounded-lg bg-red-900/10 border border-red-900/30 flex items-start gap-2">
+          <AlertCircle className="w-4 h-4 text-red-400 flex-shrink-0 mt-0.5" />
+          <div className="flex-1 min-w-0">
+            <p className="text-sm font-medium text-red-400">Import Failed</p>
+            <p className="text-xs text-stone-400 mt-0.5">{importError}</p>
           </div>
         </div>
       )}
@@ -217,21 +293,36 @@ export const DataManagementSection: React.FC = () => {
           </div>
         </div>
 
-        {/* Import Section (Placeholder for Phase 2) */}
+        {/* Import Section */}
         <div>
           <label className="text-sm font-medium text-sand block mb-2">Import Notes</label>
+          <input
+            ref={fileInputRef}
+            type="file"
+            accept=".zip,.json,.md,.txt"
+            onChange={handleFileSelect}
+            className="hidden"
+          />
           <button
-            disabled
-            className="w-full p-3 rounded-lg border-2 border-stone-700 bg-stone-800/30 text-left opacity-50 cursor-not-allowed"
+            onClick={handleImportClick}
+            disabled={isImporting}
+            className={cn(
+              'w-full p-3 rounded-lg border-2 transition-all text-left',
+              isImporting
+                ? 'border-stone-700 bg-stone-800/50 cursor-not-allowed opacity-60'
+                : 'border-stone-700 bg-stone-800/50 hover:border-stone-600 hover:bg-stone-800'
+            )}
           >
             <div className="flex items-center gap-3">
               <div className="w-10 h-10 rounded-lg bg-stone-700/50 flex items-center justify-center flex-shrink-0">
-                <FileArchive className="w-5 h-5 text-stone-500" />
+                <FileArchive className="w-5 h-5 text-stone-400" />
               </div>
               <div className="flex-1 min-w-0">
-                <div className="text-sm font-semibold text-stone-500">Choose Files...</div>
-                <div className="text-xs text-stone-600 mt-0.5">
-                  Coming soon
+                <div className="text-sm font-semibold text-sand">
+                  {isImporting ? 'Importing...' : 'Choose Files...'}
+                </div>
+                <div className="text-xs text-stone-400 mt-0.5">
+                  DHI backup, Markdown, or JSON
                 </div>
               </div>
             </div>
