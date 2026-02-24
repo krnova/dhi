@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useState, useRef } from 'react';
 import { NodeViewWrapper } from '@tiptap/react';
 import { assetService } from '../../services/AssetService';
 import { extractAssetId } from '../../utils/assetUrlHandler';
@@ -10,6 +10,10 @@ const ImageComponent = ({ node, deleteNode }: any) => {
   const [error, setError] = useState<string | null>(null);
   const [showDelete, setShowDelete] = useState(false);
 
+  // Track the blob URL in a ref so cleanup always has access to the latest value,
+  // regardless of when the effect cleanup function was created.
+  const blobUrlRef = useRef<string | null>(null);
+
   useEffect(() => {
     let active = true;
     const src = node.attrs.src;
@@ -17,7 +21,7 @@ const ImageComponent = ({ node, deleteNode }: any) => {
     const loadImage = async () => {
       try {
         const assetId = extractAssetId(src);
-        
+
         if (assetId) {
           const asset = await assetService.getAsset(assetId);
 
@@ -25,6 +29,7 @@ const ImageComponent = ({ node, deleteNode }: any) => {
 
           if (asset) {
             const url = assetService.createObjectURL(asset.blob);
+            blobUrlRef.current = url;
             setImageUrl(url);
             setLoading(false);
           } else {
@@ -33,6 +38,7 @@ const ImageComponent = ({ node, deleteNode }: any) => {
           }
         } else {
           if (active) {
+            // External URL — no blob to manage
             setImageUrl(src);
             setLoading(false);
           }
@@ -49,8 +55,12 @@ const ImageComponent = ({ node, deleteNode }: any) => {
 
     return () => {
       active = false;
-      if (imageUrl && imageUrl.startsWith('blob:')) {
-        assetService.revokeObjectURL(imageUrl);
+      // Always revoke whatever blob URL was created during this effect's lifetime.
+      // Using a ref guarantees we revoke the URL that was actually set, not the
+      // stale null captured at effect-creation time.
+      if (blobUrlRef.current && blobUrlRef.current.startsWith('blob:')) {
+        assetService.revokeObjectURL(blobUrlRef.current);
+        blobUrlRef.current = null;
       }
     };
   }, [node.attrs.src]);
@@ -85,9 +95,9 @@ const ImageComponent = ({ node, deleteNode }: any) => {
           <ImageOff className="w-5 h-5 text-red-400" />
           <span className="text-sm font-medium text-red-400">Load Failed</span>
         </div>
-        <button 
-           onClick={handleDelete}
-           className="mt-2 text-xs flex items-center gap-1 text-stone-400 hover:text-red-400 transition-colors p-1 rounded hover:bg-red-900/20"
+        <button
+          onClick={handleDelete}
+          className="mt-2 text-xs flex items-center gap-1 text-stone-400 hover:text-red-400 transition-colors p-1 rounded hover:bg-red-900/20"
         >
           <Trash2 className="w-3 h-3" /> Remove
         </button>
@@ -109,7 +119,7 @@ const ImageComponent = ({ node, deleteNode }: any) => {
           title={node.attrs.title || ''}
           className="max-w-full h-auto rounded-lg border border-stone-700 bg-stone-900 block"
         />
-        
+
         {showDelete && (
           <button
             onClick={handleDelete}

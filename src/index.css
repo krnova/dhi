@@ -7,11 +7,9 @@
     @apply border-stone-800;
   }
 
-  html {
-
-  html, body {
+  html,
+  body {
     height: 100dvh; /* Dynamic Viewport Height - handles mobile URL bar */
-  }
     font-size: 16px;
   }
 

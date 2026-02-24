@@ -46,6 +46,9 @@ export interface AppSettings {
   enableJyotish: boolean;
   defaultView: 'editor' | 'vision' | 'time';
   editorMode: 'plain' | 'rich';
+  // Fix #5: declare the field that executeImport explicitly preserves during
+  // settings restoration. Without this, the field is untyped through the spread.
+  hasCompletedOnboarding?: boolean;
   location?: {
     latitude: number;
     longitude: number;
@@ -108,8 +111,8 @@ export interface ImportConflict {
 }
 
 export interface ImportWarning {
-  type: 'missing_asset' 
-     | 'unresolved_wiki_link' 
+  type: 'missing_asset'
+     | 'unresolved_wiki_link'
      | 'invalid_tag'
      | 'broken_folder_ref'
      | 'malformed_frontmatter';

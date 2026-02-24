@@ -10,26 +10,27 @@ interface NotesState {
   folders: Folder[];
   currentNoteId: string | null;
   isLoading: boolean;
-  
+
   loadNotes: () => Promise<void>;
   loadFolders: () => Promise<void>;
-  
+
   createNote: (title: string, folderId?: string) => Promise<Note>;
   updateNote: (id: string, updates: Partial<Note>) => Promise<void>;
   updateNoteOptimistic: (id: string, updates: Partial<Note>) => void;
   deleteNote: (id: string) => Promise<void>;
-  
+
   addTag: (noteId: string, tag: Tag) => Promise<void>;
   removeTag: (noteId: string, tagName: string) => Promise<void>;
-  
+
   createFolder: (name: string, parentId?: string) => Promise<Folder>;
   deleteFolder: (id: string) => Promise<void>;
   renameFolder: (id: string, newName: string) => Promise<void>;
   moveNote: (noteId: string, targetFolderId: string | undefined) => Promise<void>;
-  
+
   setCurrentNote: (id: string | null) => void;
   getCurrentNote: () => Note | null;
-  
+  clearNoteTimers: (noteId: string) => void;
+
   searchNotes: (query: string) => Note[];
   getBacklinks: (noteId: string) => Note[];
   getNoteById: (id: string) => Note | null;
@@ -80,8 +81,8 @@ const getNextColor = () => {
   } catch (err) {
     console.error('Failed to load custom tag palette:', err);
   }
-  
-  const color = palette[colorIndex];
+
+  const color = palette[colorIndex % palette.length];
   colorIndex = (colorIndex + 1) % palette.length;
   return color;
 };
@@ -145,10 +146,9 @@ export const useNotesStore = create<NotesState>((set, get) => ({
     perfMonitor.mark('update-start');
     const state = get();
     const note = state.notes.find(n => n.id === id);
-    
+
     if (!note) return;
 
-    // 🔥 DEBUG: Log extraction
     let linkedNotes = note.linkedNotes;
     if (updates.content !== undefined) {
       linkedNotes = extractLinkedNoteIds(updates.content);
@@ -189,7 +189,7 @@ export const useNotesStore = create<NotesState>((set, get) => ({
     try {
       const state = get();
       const note = state.notes.find(n => n.id === id);
-      
+
       if (!note) {
         throw new Error('Note not found');
       }
@@ -207,7 +207,7 @@ export const useNotesStore = create<NotesState>((set, get) => ({
       };
 
       await db.setInStore('notes', updatedNote);
-      
+
       set(state => ({
         notes: state.notes.map(n => n.id === id ? updatedNote : n)
           .sort((a, b) => b.updatedAt - a.updatedAt)
@@ -234,7 +234,7 @@ export const useNotesStore = create<NotesState>((set, get) => ({
   addTag: async (noteId, tag) => {
     const state = get();
     const note = state.notes.find(n => n.id === noteId);
-    
+
     if (!note) return;
 
     if (note.tags.some(t => t.name.toLowerCase() === tag.name.toLowerCase())) {
@@ -249,7 +249,7 @@ export const useNotesStore = create<NotesState>((set, get) => ({
   removeTag: async (noteId, tagName) => {
     const state = get();
     const note = state.notes.find(n => n.id === noteId);
-    
+
     if (!note) return;
 
     await get().updateNote(noteId, {
@@ -374,14 +374,14 @@ export const useNotesStore = create<NotesState>((set, get) => ({
 
   searchNotes: (query) => {
     const lowerQuery = query.toLowerCase();
-    
+
     if (lowerQuery.startsWith('#')) {
       const tagQuery = lowerQuery.substring(1);
       return get().notes.filter(note =>
         note.tags.some(tag => tag.name.toLowerCase().includes(tagQuery))
       );
     }
-    
+
     return get().notes.filter(note =>
       note.title.toLowerCase().includes(lowerQuery) ||
       note.content.toLowerCase().includes(lowerQuery) ||

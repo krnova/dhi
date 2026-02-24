@@ -159,7 +159,7 @@ export const TiptapEditor: React.FC<TiptapEditorProps> = ({
     },
     // Update toolbar when selection/cursor changes
     onSelectionUpdate: () => {
-      setToolbarKey(prev => prev + 1);
+      queueMicrotask(() => setToolbarKey(prev => prev + 1));
     },
   });
 

@@ -155,6 +155,7 @@ export const ImportPreviewModal: React.FC<ImportPreviewModalProps> = ({
                         </span>
                       </div>
                       <div className="space-y-1 pl-5">
+                        {/* key uses oldId which is a unique identifier per conflict */}
                         {skipConflicts.slice(0, 5).map(c => (
                           <p key={c.oldId} className="text-xs text-stone-500 truncate">
                             • {c.title}
@@ -176,6 +177,7 @@ export const ImportPreviewModal: React.FC<ImportPreviewModalProps> = ({
                         </span>
                       </div>
                       <div className="space-y-1 pl-5">
+                        {/* key uses oldId which is a unique identifier per conflict */}
                         {regenerateConflicts.slice(0, 5).map(c => (
                           <p key={c.oldId} className="text-xs text-stone-500 truncate">
                             • {c.title}
@@ -222,7 +224,8 @@ export const ImportPreviewModal: React.FC<ImportPreviewModalProps> = ({
                       </p>
                       <div className="space-y-0.5 pl-4">
                         {missingAssetWarnings.slice(0, 3).map((w, i) => (
-                          <p key={i} className="text-xs text-stone-500 truncate">• {w.message}</p>
+                          // Prefix with "missing-" namespace to guarantee no collision with otherWarnings keys
+                          <p key={`missing-${i}`} className="text-xs text-stone-500 truncate">• {w.message}</p>
                         ))}
                         {missingAssetWarnings.length > 3 && (
                           <p className="text-xs text-stone-600">+{missingAssetWarnings.length - 3} more</p>
@@ -231,7 +234,8 @@ export const ImportPreviewModal: React.FC<ImportPreviewModalProps> = ({
                     </div>
                   )}
                   {otherWarnings.map((w, i) => (
-                    <p key={i} className="text-xs text-stone-500">• {w.message}</p>
+                    // Prefix with "other-" namespace to guarantee no collision with missingAssetWarnings keys
+                    <p key={`other-${i}`} className="text-xs text-stone-500">• {w.message}</p>
                   ))}
                 </div>
               )}
