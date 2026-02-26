@@ -57,6 +57,21 @@ export interface ExportProgress {
   message: string;
 }
 
+/**
+ * Real-time progress state emitted by executeImport via onProgress callback.
+ * Shape matches ImportProgressState in ImportProgressModal so DataManagementSection
+ * can pass it directly to setImportProgress without any adaptation.
+ */
+export interface ImportProgressCallback {
+  stage: 'folders' | 'assets' | 'notes' | 'finalizing';
+  current: number;
+  total: number;
+  notesImported: number;
+  foldersCreated: number;
+  assetsImported: number;
+  message: string;
+}
+
 // ═══════════════════════════════════════════════════════════════════════════
 // ASSET VALIDATION GUARDS
 // ═══════════════════════════════════════════════════════════════════════════
@@ -364,8 +379,6 @@ export async function exportMarkdownArchive(
     const assetsFolder = zip.folder('assets')!;
 
     // FIX #1: Track used file paths to prevent duplicate title overwrite.
-    // When multiple notes share the same title (e.g. "Untitled Note") in the
-    // same folder, append a counter suffix (-1, -2, …) to keep each path unique.
     const usedFilePaths = new Set<string>();
 
     for (let i = 0; i < notes.length; i++) {
@@ -409,7 +422,6 @@ export async function exportMarkdownArchive(
         ? `${folderPath}/${sanitizedTitle}`
         : sanitizedTitle;
 
-      // Deduplicate: append -1, -2, … until the path is unique
       let filePath = `${basePath}.md`;
       let counter = 1;
       while (usedFilePaths.has(filePath)) {
@@ -729,10 +741,7 @@ async function parseJSONImport(file: File): Promise<ImportPlan> {
 }
 
 // FIX #2: Correctly distinguish DHI Markdown archives from external Markdown
-// zips. The previous check required BOTH `id.startsWith('note-')` AND
-// `'folderId' in frontmatter`, but notes stored in the zip root have no
-// folderId in their frontmatter. Checking only the `note-` prefix is sufficient
-// to identify a DHI-native note.
+// zips. Checking only the `note-` prefix is sufficient to identify a DHI-native note.
 async function parseMarkdownArchiveFromZip(zip: JSZip): Promise<ImportPlan> {
   const notes: Note[] = [];
   const folders: Folder[] = [];
@@ -783,7 +792,6 @@ async function parseMarkdownArchiveFromZip(zip: JSZip): Promise<ImportPlan> {
 
   const folderPathMap = new Map<string, string>();
 
-  // Track whether any note looks like a DHI-native note to determine source
   let dhiNoteCount = 0;
   let totalNoteCount = 0;
 
@@ -817,8 +825,7 @@ async function parseMarkdownArchiveFromZip(zip: JSZip): Promise<ImportPlan> {
     const noteContent = frontmatterMatch[2];
     totalNoteCount++;
 
-    // FIX #2: A note is DHI-native if its id starts with "note-" — the
-    // presence of folderId is NOT required (root notes legitimately omit it).
+    // FIX #2: A note is DHI-native if its id starts with "note-"
     const isDHINative =
       typeof frontmatter.id === 'string' &&
       frontmatter.id.startsWith('note-');
@@ -869,8 +876,6 @@ async function parseMarkdownArchiveFromZip(zip: JSZip): Promise<ImportPlan> {
     notes.push(note);
   }
 
-  // Determine source by majority — if more than half the notes are
-  // DHI-native, treat the whole archive as dhi-markdown; otherwise external.
   const source: ImportPlan['source'] =
     totalNoteCount > 0 && dhiNoteCount > totalNoteCount / 2
       ? 'dhi-markdown'
@@ -1045,8 +1050,6 @@ async function detectCollisions(
   for (const asset of importedAssets) {
     const existing = existingAssets.find(a => a.id === asset.id);
     if (existing) {
-      // If the owning note is being skipped, skip the asset too —
-      // no point regenerating an asset whose note reference won't be updated
       const owningNoteConflict = conflicts.find(
         c => c.type === 'note' && c.oldId === asset.noteId && c.action === 'skip'
       );
@@ -1143,7 +1146,8 @@ function topologicalSortFolders(folders: Folder[]): Folder[] {
 
 export async function executeImport(
   plan: ImportPlan,
-  restoreSettings: boolean = false
+  restoreSettings: boolean = false,
+  onProgress?: (progress: ImportProgressCallback) => void
 ): Promise<ImportResult> {
 
   const result: ImportResult = {
@@ -1159,7 +1163,30 @@ export async function executeImport(
     settingsRestored: false,
   };
 
+  // Total items to process drives the progress bar denominator.
+  // Skipped items still count as "processed" so the bar reaches 100%.
+  const total = plan.folders.length + plan.assets.length + plan.notes.length;
+  let current = 0;
+
+  /**
+   * Snapshot the current result counters and emit to the caller.
+   * Reading live from `result` (not a local copy) means the UI always sees
+   * the true processed count, never a pre-cooked staged estimate.
+   */
+  const emit = (stage: ImportProgressCallback['stage'], message: string) => {
+    onProgress?.({
+      stage,
+      current,
+      total,
+      notesImported: result.notesImported,
+      foldersCreated: result.foldersCreated,
+      assetsImported: result.assetsImported,
+      message,
+    });
+  };
+
   try {
+    // ── Build ID remap table ───────────────────────────────────────────────
     const idMappings = new Map<string, string>();
     for (const conflict of plan.conflicts) {
       if (conflict.action === 'regenerate' && conflict.newId) {
@@ -1177,6 +1204,7 @@ export async function executeImport(
       }
     }
 
+    // ── Remap IDs inside note content / linkedNotes ───────────────────────
     let notesToImport = remapNoteReferences(plan.notes, idMappings);
 
     notesToImport = notesToImport.map(note => {
@@ -1228,9 +1256,16 @@ export async function executeImport(
       return asset;
     });
 
-    // 1. Import folders (topologically sorted)
+    // ── 1. Folders (topological order) ────────────────────────────────────
     const sortedFolders = topologicalSortFolders(foldersToImport);
     const currentFolders = await db.get<Folder[]>('folders') || [];
+
+    emit(
+      'folders',
+      plan.folders.length > 0
+        ? `Restoring ${plan.folders.length} folder${plan.folders.length !== 1 ? 's' : ''}...`
+        : 'Preparing import...'
+    );
 
     for (const folder of sortedFolders) {
       const originalConflict = plan.conflicts.find(c => c.type === 'folder' &&
@@ -1244,16 +1279,34 @@ export async function executeImport(
         currentFolders.push(folder);
         result.foldersCreated++;
       }
+
+      current++;
+      emit(
+        'folders',
+        shouldSkip
+          ? `Skipping existing folder "${folder.name}"...`
+          : `Restored folder "${folder.name}"`
+      );
     }
     await db.set('folders', currentFolders);
 
-    // 2. Import assets
+    // ── 2. Assets ─────────────────────────────────────────────────────────
+    if (assetsToImport.length > 0) {
+      emit('assets', `Importing ${assetsToImport.length} image${assetsToImport.length !== 1 ? 's' : ''}...`);
+    }
+
     for (const asset of assetsToImport) {
       const conflict = plan.conflicts.find(c => c.oldId === asset.id && c.type === 'asset');
-      if (conflict?.action === 'skip') continue;
+
+      if (conflict?.action === 'skip') {
+        current++;
+        emit('assets', `Skipping existing image "${asset.metadata.name}"...`);
+        continue;
+      }
 
       if (!isValidImageMime(asset.metadata.mimeType)) {
         console.warn(`Skipping non-image asset during import: ${asset.id}`);
+        current++;
         continue;
       }
 
@@ -1268,25 +1321,38 @@ export async function executeImport(
         createdAt: asset.metadata.createdAt,
       });
       result.assetsImported++;
+      current++;
+      emit('assets', `Imported image ${result.assetsImported} of ${assetsToImport.length}...`);
     }
 
-    // 3. Import notes
+    // ── 3. Notes ──────────────────────────────────────────────────────────
+    if (notesToImport.length > 0) {
+      emit('notes', `Importing ${notesToImport.length} note${notesToImport.length !== 1 ? 's' : ''}...`);
+    }
+
     for (const note of notesToImport) {
       const action = noteActionByNewId.get(note.id);
 
       if (action === 'skip') {
         result.notesSkipped++;
+        current++;
+        emit('notes', `Skipping "${note.title}"...`);
       } else if (action === 'regenerate') {
         await db.setInStore('notes', note);
         result.notesRegenerated++;
+        current++;
+        emit('notes', `Imported "${note.title}" (new ID)...`);
       } else {
         await db.setInStore('notes', note);
         result.notesImported++;
+        current++;
+        emit('notes', `Imported "${note.title}"...`);
       }
     }
 
-    // 4. Optional: Restore settings
+    // ── 4. Settings ───────────────────────────────────────────────────────
     if (restoreSettings && plan.containsSettings && plan.settings) {
+      emit('finalizing', 'Restoring settings...');
       const currentSettings = await storage.get<AppSettings>('settings');
       if (currentSettings) {
         await storage.set('settings', {
@@ -1298,6 +1364,7 @@ export async function executeImport(
       }
     }
 
+    emit('finalizing', 'Finishing up...');
     result.success = true;
 
   } catch (error) {

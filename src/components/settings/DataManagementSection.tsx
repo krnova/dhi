@@ -9,6 +9,7 @@ import {
   parseImportFile,
   executeImport,
   type ExportProgress,
+  type ImportProgressCallback,
 } from '../../services/ImportExportService';
 import type { ImportPlan, ImportResult } from '../../types/storage';
 import { ImportPreviewModal } from './ImportPreviewModal';
@@ -125,57 +126,30 @@ export const DataManagementSection: React.FC = () => {
   const handleConfirmImport = async (restoreSettings: boolean) => {
     if (!importPlan) return;
 
-    setImportStage('importing');
-
-    const progressTracker: ImportProgressState = {
+    // Seed the initial progress state so the modal renders immediately
+    // with a sensible denominator before the first callback fires.
+    const total = importPlan.folders.length + importPlan.assets.length + importPlan.notes.length;
+    setImportProgress({
       stage: 'folders',
       current: 0,
-      total: importPlan.folders.length + importPlan.assets.length + importPlan.notes.length,
+      total,
       notesImported: 0,
       foldersCreated: 0,
       assetsImported: 0,
-      message: 'Restoring folders...',
+      message: 'Starting...',
+    });
+    setImportStage('importing');
+
+    /**
+     * Bridge between ImportProgressCallback (service) and ImportProgressState (modal).
+     * The shapes are identical — this cast is safe and avoids a re-export.
+     */
+    const onProgress = (progress: ImportProgressCallback) => {
+      setImportProgress(progress as ImportProgressState);
     };
-    setImportProgress({ ...progressTracker });
 
     try {
-      // Phase 1 – folders
-      setImportProgress(p => ({ ...p, stage: 'folders', message: 'Restoring folders...' }));
-      await new Promise(r => setTimeout(r, 50));
-
-      // Phase 2 – assets
-      setImportProgress(p => ({
-        ...p,
-        stage: 'assets',
-        current: importPlan.folders.length,
-        message: `Importing ${importPlan.assets.length} image${importPlan.assets.length !== 1 ? 's' : ''}...`,
-      }));
-      await new Promise(r => setTimeout(r, 50));
-
-      // Phase 3 – notes
-      setImportProgress(p => ({
-        ...p,
-        stage: 'notes',
-        current: importPlan.folders.length + importPlan.assets.length,
-        message: `Importing ${importPlan.notes.length} note${importPlan.notes.length !== 1 ? 's' : ''}...`,
-      }));
-      await new Promise(r => setTimeout(r, 50));
-
-      // Execute
-      const result = await executeImport(importPlan, restoreSettings);
-
-      setImportProgress(p => ({
-        ...p,
-        stage: 'finalizing',
-        current: p.total,
-        notesImported: result.notesImported,
-        foldersCreated: result.foldersCreated,
-        assetsImported: result.assetsImported,
-        message: 'Finishing up...',
-      }));
-
-      await new Promise(r => setTimeout(r, 300));
-
+      const result = await executeImport(importPlan, restoreSettings, onProgress);
       setImportResult(result);
       setImportStage('result');
     } catch (error) {
