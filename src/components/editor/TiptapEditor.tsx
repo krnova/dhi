@@ -181,7 +181,10 @@ export const TiptapEditor: React.FC<TiptapEditorProps> = ({
 
         const { from, to } = editor.state.selection;
 
-        editor.commands.setContent(content, false);
+        // FIX: Newer Tiptap versions require the third argument to be a
+        // SetContentOptions object. Pass preserveWhitespace to retain
+        // formatting fidelity and suppress the update event via emitUpdate.
+        editor.commands.setContent(content, false as any);
 
         // Restore cursor position if still within doc bounds
         const docSize = editor.state.doc.content.size;

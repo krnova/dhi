@@ -7,7 +7,7 @@ import { extractLinkedNoteIds } from '../utils/wikiLinks';
 import { Capacitor } from '@capacitor/core';
 import { IndexedDBAdapter } from './IndexedDBAdapter';
 import { LocalStorageAdapter } from './LocalStorageAdapter';
-import type { Note, Folder, Asset, AppSettings, ExportManifest, AssetMetadata, ImportPlan, ImportConflict, ImportWarning, Tag } from '../types/storage';
+import type { Note, Folder, Asset, AppSettings, ImportPlan, ImportConflict, ImportWarning, ImportResult, Tag } from '../types/storage';
 
 const db = new IndexedDBAdapter();
 const storage = new LocalStorageAdapter();
@@ -1375,5 +1375,5 @@ export async function executeImport(
   return result;
 }
 
-// Re-export ImportResult type for consumers
-export type { ImportResult } from '../types/storage';
+// Re-export for consumers who import ImportResult from this module
+export type { ImportResult };

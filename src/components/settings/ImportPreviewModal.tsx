@@ -3,8 +3,6 @@ import React, { useState, useEffect } from 'react';
 import {
   X,
   FileArchive,
-  FileText,
-  Folder,
   Image as ImageIcon,
   AlertTriangle,
   SkipForward,
