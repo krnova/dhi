@@ -181,16 +181,12 @@ async function saveFile(blob: Blob, filename: string): Promise<void> {
 
 // ═══════════════════════════════════════════════════════════════════════════
 // ID GENERATION
-// Fix #3: Use crypto.randomUUID() for the unique segment to eliminate the
-// second-precision collision window that caused duplicate IDs when generating
-// multiple IDs in the same tight loop (e.g. batch conflict detection).
 // ═══════════════════════════════════════════════════════════════════════════
 
 function generateAssetId(): string {
   const now = new Date();
   const date = `${String(now.getDate()).padStart(2, '0')}${String(now.getMonth() + 1).padStart(2, '0')}${String(now.getFullYear()).slice(-2)}`;
   const time = `${String(now.getHours()).padStart(2, '0')}${String(now.getMinutes()).padStart(2, '0')}${String(now.getSeconds()).padStart(2, '0')}`;
-  // Use 8 chars of a UUID instead of 3 random chars — zero collision risk in any batch size
   const unique = crypto.randomUUID().replace(/-/g, '').slice(0, 8);
   return `asset-${date}-${time}-${unique}`;
 }
@@ -367,6 +363,11 @@ export async function exportMarkdownArchive(
     const zip = new JSZip();
     const assetsFolder = zip.folder('assets')!;
 
+    // FIX #1: Track used file paths to prevent duplicate title overwrite.
+    // When multiple notes share the same title (e.g. "Untitled Note") in the
+    // same folder, append a counter suffix (-1, -2, …) to keep each path unique.
+    const usedFilePaths = new Set<string>();
+
     for (let i = 0; i < notes.length; i++) {
       const note = notes[i];
       const percent = 25 + Math.floor((i / notes.length) * 50);
@@ -404,9 +405,18 @@ export async function exportMarkdownArchive(
       frontmatter.push('---', '', note.content);
 
       const sanitizedTitle = sanitizeFilename(note.title);
-      const filePath = folderPath
-        ? `${folderPath}/${sanitizedTitle}.md`
-        : `${sanitizedTitle}.md`;
+      const basePath = folderPath
+        ? `${folderPath}/${sanitizedTitle}`
+        : sanitizedTitle;
+
+      // Deduplicate: append -1, -2, … until the path is unique
+      let filePath = `${basePath}.md`;
+      let counter = 1;
+      while (usedFilePaths.has(filePath)) {
+        filePath = `${basePath}-${counter}.md`;
+        counter++;
+      }
+      usedFilePaths.add(filePath);
 
       zip.file(filePath, frontmatter.join('\n'));
     }
@@ -718,12 +728,11 @@ async function parseJSONImport(file: File): Promise<ImportPlan> {
   };
 }
 
-// Fix #2: Correctly distinguish DHI Markdown archives from external Markdown
-// zips. A zip without dhi-backup.json is only a DHI archive if its notes
-// have DHI-specific frontmatter (id starting with "note-" AND a folderId
-// field). Otherwise it is treated as external-markdown. The source field is
-// now set per-note and the majority wins — but in practice the entire zip
-// should be homogeneous.
+// FIX #2: Correctly distinguish DHI Markdown archives from external Markdown
+// zips. The previous check required BOTH `id.startsWith('note-')` AND
+// `'folderId' in frontmatter`, but notes stored in the zip root have no
+// folderId in their frontmatter. Checking only the `note-` prefix is sufficient
+// to identify a DHI-native note.
 async function parseMarkdownArchiveFromZip(zip: JSZip): Promise<ImportPlan> {
   const notes: Note[] = [];
   const folders: Folder[] = [];
@@ -774,7 +783,7 @@ async function parseMarkdownArchiveFromZip(zip: JSZip): Promise<ImportPlan> {
 
   const folderPathMap = new Map<string, string>();
 
-  // Fix #2: track whether any note looks like a DHI-native note to determine source
+  // Track whether any note looks like a DHI-native note to determine source
   let dhiNoteCount = 0;
   let totalNoteCount = 0;
 
@@ -808,12 +817,11 @@ async function parseMarkdownArchiveFromZip(zip: JSZip): Promise<ImportPlan> {
     const noteContent = frontmatterMatch[2];
     totalNoteCount++;
 
-    // Fix #2: a note is DHI-native if its id starts with "note-" AND folderId
-    // is explicitly present (even if undefined/null in YAML, the key exists)
+    // FIX #2: A note is DHI-native if its id starts with "note-" — the
+    // presence of folderId is NOT required (root notes legitimately omit it).
     const isDHINative =
       typeof frontmatter.id === 'string' &&
-      frontmatter.id.startsWith('note-') &&
-      'folderId' in frontmatter;
+      frontmatter.id.startsWith('note-');
 
     if (isDHINative) dhiNoteCount++;
 
@@ -861,7 +869,7 @@ async function parseMarkdownArchiveFromZip(zip: JSZip): Promise<ImportPlan> {
     notes.push(note);
   }
 
-  // Fix #2: determine source by majority — if more than half the notes are
+  // Determine source by majority — if more than half the notes are
   // DHI-native, treat the whole archive as dhi-markdown; otherwise external.
   const source: ImportPlan['source'] =
     totalNoteCount > 0 && dhiNoteCount > totalNoteCount / 2
@@ -973,10 +981,6 @@ async function parseMarkdownImport(file: File): Promise<ImportPlan> {
 
 // ═══════════════════════════════════════════════════════════════════════════
 // COLLISION DETECTION
-// Fix #4: Folder collisions now distinguish skip vs regenerate, mirroring
-// the note logic. A folder with the same ID, name, and parent is a clean
-// re-import of own data → skip. A folder with the same ID but different
-// name or parent is a genuine collision → regenerate.
 // ═══════════════════════════════════════════════════════════════════════════
 
 async function detectCollisions(
@@ -1017,7 +1021,6 @@ async function detectCollisions(
   for (const folder of importedFolders) {
     const existing = existingFolders.find(f => f.id === folder.id);
     if (existing) {
-      // Fix #4: skip if same identity (name + parent), regenerate if different
       if (existing.name === folder.name && existing.parentId === folder.parentId) {
         conflicts.push({
           type: 'folder',
@@ -1042,14 +1045,29 @@ async function detectCollisions(
   for (const asset of importedAssets) {
     const existing = existingAssets.find(a => a.id === asset.id);
     if (existing) {
-      conflicts.push({
-        type: 'asset',
-        oldId: asset.id,
-        newId: generateAssetId(),
-        title: asset.name,
-        action: 'regenerate',
-        reason: 'Asset ID collision',
-      });
+      // If the owning note is being skipped, skip the asset too —
+      // no point regenerating an asset whose note reference won't be updated
+      const owningNoteConflict = conflicts.find(
+        c => c.type === 'note' && c.oldId === asset.noteId && c.action === 'skip'
+      );
+      if (owningNoteConflict) {
+        conflicts.push({
+          type: 'asset',
+          oldId: asset.id,
+          title: asset.name,
+          action: 'skip',
+          reason: 'Asset already exists and owning note is being skipped',
+        });
+      } else {
+        conflicts.push({
+          type: 'asset',
+          oldId: asset.id,
+          newId: generateAssetId(),
+          title: asset.name,
+          action: 'regenerate',
+          reason: 'Asset ID collision',
+        });
+      }
     }
   }
 
@@ -1121,14 +1139,6 @@ function topologicalSortFolders(folders: Folder[]): Folder[] {
 
 // ═══════════════════════════════════════════════════════════════════════════
 // IMPORT EXECUTION
-// Fix #1: The conflict lookup in the note loop was comparing note.id (which
-// had already been remapped to the NEW id) against conflict.oldId. This caused
-// the lookup to always miss for regenerated notes, making them fall through to
-// the plain "imported" counter instead of "regenerated".
-//
-// Fix: snapshot the old→new mapping BEFORE any id mutation, then look up by
-// original old id throughout, using a pre-built Map<newId, action> for the
-// note loop which runs after IDs have been swapped.
 // ═══════════════════════════════════════════════════════════════════════════
 
 export async function executeImport(
@@ -1150,7 +1160,6 @@ export async function executeImport(
   };
 
   try {
-    // Build old→new id mapping from conflicts (note, folder, and asset)
     const idMappings = new Map<string, string>();
     for (const conflict of plan.conflicts) {
       if (conflict.action === 'regenerate' && conflict.newId) {
@@ -1158,23 +1167,18 @@ export async function executeImport(
       }
     }
 
-    // Fix #1: build a lookup by NEW note id → conflict action so the note
-    // loop (which runs after ids have been swapped) can still find the right
-    // action without relying on the now-mutated note.id matching oldId.
     const noteActionByNewId = new Map<string, ImportConflict['action']>();
     for (const conflict of plan.conflicts) {
       if (conflict.type === 'note') {
         const effectiveId = conflict.action === 'regenerate' && conflict.newId
-          ? conflict.newId   // after remapping this note will carry newId
-          : conflict.oldId;  // skip notes keep their original id
+          ? conflict.newId
+          : conflict.oldId;
         noteActionByNewId.set(effectiveId, conflict.action);
       }
     }
 
-    // Remap wiki links and asset references using old→new mappings
     let notesToImport = remapNoteReferences(plan.notes, idMappings);
 
-    // Swap note ids for regenerated notes
     notesToImport = notesToImport.map(note => {
       const conflict = plan.conflicts.find(c => c.oldId === note.id && c.type === 'note');
       if (conflict?.action === 'regenerate' && conflict.newId) {
@@ -1183,7 +1187,6 @@ export async function executeImport(
       return note;
     });
 
-    // Remap folder ids and parentIds
     let foldersToImport = plan.folders.map(folder => {
       const conflict = plan.conflicts.find(c => c.oldId === folder.id && c.type === 'folder');
       if (conflict?.action === 'regenerate' && conflict.newId) {
@@ -1196,7 +1199,6 @@ export async function executeImport(
       return folder;
     });
 
-    // Remap note folderId references
     notesToImport = notesToImport.map(note => {
       if (note.folderId && idMappings.has(note.folderId)) {
         return { ...note, folderId: idMappings.get(note.folderId) };
@@ -1204,7 +1206,6 @@ export async function executeImport(
       return note;
     });
 
-    // Remap asset ids and their noteId back-references
     let assetsToImport = plan.assets.map(asset => {
       const conflict = plan.conflicts.find(c => c.oldId === asset.id && c.type === 'asset');
       if (conflict?.action === 'regenerate' && conflict.newId) {
@@ -1232,10 +1233,11 @@ export async function executeImport(
     const currentFolders = await db.get<Folder[]>('folders') || [];
 
     for (const folder of sortedFolders) {
-      // Fix #4: folder conflicts now include skip actions, so this path is live
-      const conflict = plan.conflicts.find(c => c.oldId === folder.id && c.type === 'folder');
+      const originalConflict = plan.conflicts.find(c => c.type === 'folder' &&
+        (c.oldId === folder.id || c.newId === folder.id)
+      );
       const shouldSkip =
-        conflict?.action === 'skip' ||
+        originalConflict?.action === 'skip' ||
         currentFolders.some(f => f.id === folder.id);
 
       if (!shouldSkip) {
@@ -1269,8 +1271,6 @@ export async function executeImport(
     }
 
     // 3. Import notes
-    // Fix #1: look up action by the note's CURRENT id (post-remap) using
-    // the pre-built noteActionByNewId map instead of searching by oldId.
     for (const note of notesToImport) {
       const action = noteActionByNewId.get(note.id);
 
@@ -1292,7 +1292,6 @@ export async function executeImport(
         await storage.set('settings', {
           ...currentSettings,
           ...plan.settings,
-          // Never overwrite onboarding state — the user is already onboarded
           hasCompletedOnboarding: currentSettings.hasCompletedOnboarding,
         });
         result.settingsRestored = true;

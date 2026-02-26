@@ -143,11 +143,7 @@ export const TiptapEditor: React.FC<TiptapEditorProps> = ({
       },
     },
     onUpdate: ({ editor }) => {
-      // Get raw HTML content then convert to markdown manually
-      // const html = editor.getHTML();
-      // For now, use the markdown extension's output
       const markdown = (editor.storage as any).markdown.getMarkdown();
-
 
       // Debounce ONLY the store write
       if (storeWriteTimeout) clearTimeout(storeWriteTimeout);
@@ -170,20 +166,34 @@ export const TiptapEditor: React.FC<TiptapEditorProps> = ({
     if (!editor) return;
 
     const currentMarkdown = (editor.storage as any).markdown.getMarkdown();
-    
+
     // Only update if content changed externally (e.g., switching notes)
     if (content !== currentMarkdown) {
-      const { from, to } = editor.state.selection;
-      
-      // Set content without emitting update event
-      editor.commands.setContent(content, { emitUpdate: false });
-      
-      // Restore cursor position if valid
-      if (from <= editor.state.doc.content.size) {
-        editor.commands.setTextSelection({ from: Math.min(from, editor.state.doc.content.size), to: Math.min(to, editor.state.doc.content.size) });
-      }
-      
-      lastExternalContent.current = content;
+      // FIX #1: Wrap setContent in setTimeout to push it outside React's
+      // render cycle. Tiptap's setContent internally calls flushSync to
+      // synchronize ProseMirror state — calling it synchronously inside a
+      // useEffect that fires during rendering triggers React 18's
+      // "flushSync was called from inside a lifecycle method" warning.
+      // Deferring to the next task gives React time to finish its own
+      // flush before Tiptap initiates its own.
+      setTimeout(() => {
+        if (!editor) return;
+
+        const { from, to } = editor.state.selection;
+
+        editor.commands.setContent(content, false);
+
+        // Restore cursor position if still within doc bounds
+        const docSize = editor.state.doc.content.size;
+        if (from <= docSize) {
+          editor.commands.setTextSelection({
+            from: Math.min(from, docSize),
+            to: Math.min(to, docSize),
+          });
+        }
+
+        lastExternalContent.current = content;
+      }, 0);
     }
   }, [content, editor, noteId]);
 
@@ -477,7 +487,14 @@ export const TiptapEditor: React.FC<TiptapEditorProps> = ({
         )}
       </div>
 
-      <div className="flex-1 overflow-y-auto bg-ash relative">
+      {/* FIX #2: key={noteId} forces React to fully unmount and remount the
+          EditorContent — and therefore all ImageComponent nodes — whenever
+          the active note changes. Without this, the editor is reused across
+          notes and ImageComponent instances from the previous note are still
+          alive when setContent fires, causing the same asset's blob URL to
+          be created twice (once for the old node before cleanup, once for
+          the new node on mount), which visually duplicates images. */}
+      <div className="flex-1 overflow-y-auto bg-ash relative" key={noteId}>
         <EditorContent editor={editor} className="h-full" />
 
         {autocomplete && (

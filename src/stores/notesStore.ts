@@ -42,13 +42,26 @@ const db = new IndexedDBAdapter();
 // Debounce timer map for note updates
 const updateTimers = new Map<string, ReturnType<typeof setTimeout>>();
 
-// Generate human-readable note ID: note-ddmmyy-hhmmss-random
-const generateId = () => {
+// FIX #1: Use crypto.randomUUID() for the unique segment to eliminate the
+// second-precision collision window present in the old Math.random() 3-char
+// suffix (~46k combinations). UUID v4 gives ~4.3B combinations per call.
+const generateId = (): string => {
   const now = new Date();
   const date = `${String(now.getDate()).padStart(2, '0')}${String(now.getMonth() + 1).padStart(2, '0')}${String(now.getFullYear()).slice(-2)}`;
   const time = `${String(now.getHours()).padStart(2, '0')}${String(now.getMinutes()).padStart(2, '0')}${String(now.getSeconds()).padStart(2, '0')}`;
-  const random = Math.random().toString(36).substr(2, 3);
-  return `note-${date}-${time}-${random}`;
+  const unique = crypto.randomUUID().replace(/-/g, '').slice(0, 8);
+  return `note-${date}-${time}-${unique}`;
+};
+
+// FIX #2: Folders must NOT use the "note-" prefix — the import parser uses
+// `id.startsWith('note-')` as the DHI-native note signal. A folder with a
+// "note-" ID would be misclassified during markdown archive import.
+const generateFolderId = (): string => {
+  const now = new Date();
+  const date = `${String(now.getDate()).padStart(2, '0')}${String(now.getMonth() + 1).padStart(2, '0')}${String(now.getFullYear()).slice(-2)}`;
+  const time = `${String(now.getHours()).padStart(2, '0')}${String(now.getMinutes()).padStart(2, '0')}${String(now.getSeconds()).padStart(2, '0')}`;
+  const unique = crypto.randomUUID().replace(/-/g, '').slice(0, 8);
+  return `folder-${date}-${time}-${unique}`;
 };
 
 // Default tag colors
@@ -257,9 +270,11 @@ export const useNotesStore = create<NotesState>((set, get) => ({
     });
   },
 
+  // FIX #2: Use generateFolderId() instead of generateId() so folders
+  // get "folder-" prefixed IDs rather than "note-" prefixed ones.
   createFolder: async (name, parentId) => {
     const folder: Folder = {
-      id: generateId(),
+      id: generateFolderId(),
       name,
       parentId,
       createdAt: Date.now(),

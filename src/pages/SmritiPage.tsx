@@ -1,4 +1,4 @@
-import React, { useEffect, useState, useRef, useMemo, } from 'react';
+import React, { useEffect, useState, useRef, useMemo, useCallback } from 'react';
 import { Plus, Search, ChevronRight, Trash2, Eye, Edit3, Columns, MoreVertical, X, Hash, FolderOpen, Folder } from 'lucide-react';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
@@ -19,8 +19,6 @@ import type { Folder as FolderType } from '../types/storage';
 type ViewMode = 'edit' | 'preview' | 'split';
 
 // ─── Per-note three-dot menu ────────────────────────────────────────────────
-// Two internal states: "menu" shows Move/Delete, "move" shows folder picker.
-// Back arrow in move picker returns to menu without closing.
 function NoteActionMenu({
   noteId,
   noteFolderId,
@@ -40,40 +38,21 @@ function NoteActionMenu({
   const getDropdownStyle = (): React.CSSProperties => {
     if (!anchorRef.current) return {};
     const rect = anchorRef.current.getBoundingClientRect();
-  
-  // Menu dimensions
+
     const menuWidth = 180;
-    const menuHeight = 200; // approximate max height
-  
-  // Calculate horizontal position
+    const menuHeight = 200;
+
     let left = rect.right + 4;
-    if (left + menuWidth > window.innerWidth) {
-    // Doesn't fit on right, try left
-      left = rect.left - menuWidth - 4;
-    }
-    if (left < 0) {
-    // Doesn't fit on left either, align to right edge with padding
-      left = window.innerWidth - menuWidth - 8;
-    }
-  
-  // Calculate vertical position
+    if (left + menuWidth > window.innerWidth) left = rect.left - menuWidth - 4;
+    if (left < 0) left = window.innerWidth - menuWidth - 8;
+
     let top = rect.top;
-    if (top + menuHeight > window.innerHeight) {
-    // Doesn't fit below, position above
-      top = rect.bottom - menuHeight;
-    }
-    if (top < 0) {
-    // Doesn't fit above either, pin to top with padding
-      top = 8;
-    }
-  
-    return { 
-      position: 'fixed',
-      top: `${top}px`, 
-      left: `${left}px`,
-      zIndex: 50,
-    };
+    if (top + menuHeight > window.innerHeight) top = rect.bottom - menuHeight;
+    if (top < 0) top = 8;
+
+    return { position: 'fixed', top: `${top}px`, left: `${left}px`, zIndex: 50 };
   };
+
   const renderFolderOption = (folder: FolderType, level: number = 0) => {
     const children = folders.filter(f => f.parentId === folder.id);
     return (
@@ -116,7 +95,6 @@ function NoteActionMenu({
             className="fixed z-50 bg-stone-900 border border-stone-700 rounded-lg shadow-xl py-1 min-w-[180px] max-h-[320px] overflow-y-auto"
             style={getDropdownStyle()}
           >
-            {/* ── Menu layer ── */}
             {state === 'menu' && (
               <>
                 <button
@@ -137,7 +115,6 @@ function NoteActionMenu({
               </>
             )}
 
-            {/* ── Move picker layer ── */}
             {state === 'move' && (
               <>
                 <div className="flex items-center gap-2 px-3 py-2 border-b border-stone-800">
@@ -147,7 +124,6 @@ function NoteActionMenu({
                   <span className="text-xs font-medium text-stone-400">Move to</span>
                 </div>
 
-                {/* No folder option */}
                 <button
                   onClick={() => { onMove(noteId, undefined); setState('closed'); }}
                   disabled={noteFolderId === undefined}
@@ -163,7 +139,6 @@ function NoteActionMenu({
                   {noteFolderId === undefined && <span className="text-xs text-stone-600">here</span>}
                 </button>
 
-                {/* Folder tree */}
                 {folders.filter(f => !f.parentId).map(f => renderFolderOption(f))}
 
                 {folders.length === 0 && (
@@ -233,6 +208,20 @@ export const SmritiPage: React.FC = () => {
     }
   }, [currentNoteId]);
 
+  // ── Note handlers ──
+  // FIX #2: wrapped in useCallback so the keyboard shortcut effect can
+  // list it as a dep and always see the current selectedFolderId value.
+  // Without this, Ctrl+N always created notes in the root folder because
+  // the handler was captured stale in the effect's closure.
+  const handleCreateNote = useCallback(async () => {
+    try {
+      const note = await createNote('Untitled Note', selectedFolderId);
+      setCurrentNote(note.id);
+    } catch (error) {
+      console.error('Failed to create note:', error);
+    }
+  }, [createNote, setCurrentNote, selectedFolderId]);
+
   // ── Keyboard shortcuts ──
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
@@ -251,7 +240,7 @@ export const SmritiPage: React.FC = () => {
     };
     window.addEventListener('keydown', handleKeyDown);
     return () => window.removeEventListener('keydown', handleKeyDown);
-  }, []);
+  }, [handleCreateNote]); // FIX #2: dep added — shortcut now always uses fresh handler
 
   // ── Orphaned asset cleanup on note change ──
   const currentNote = getCurrentNote();
@@ -267,16 +256,6 @@ export const SmritiPage: React.FC = () => {
 
   // ── Get backlinks for current note ──
   const backlinks = currentNote ? getBacklinks(currentNote.id) : [];
-
-  // ── Note handlers ──
-  const handleCreateNote = async () => {
-    try {
-      const note = await createNote('Untitled Note', selectedFolderId);
-      setCurrentNote(note.id);
-    } catch (error) {
-      console.error('Failed to create note:', error);
-    }
-  };
 
   const confirmDeleteNote = async () => {
     if (!deleteNoteConfirm) return;
@@ -323,27 +302,17 @@ export const SmritiPage: React.FC = () => {
   };
 
   // ── Filtered note list ──
-  let filteredNotes = searchQuery ? searchNotes(searchQuery) : notes;
-  if (selectedFolderId !== undefined) {
-    filteredNotes = filteredNotes.filter(n => n.folderId === selectedFolderId);
-  }
-
-  // ── Wiki link click handler (preview mode) ──
-  const handleWikiLinkClick = (e: React.MouseEvent<HTMLDivElement>) => {
-    const target = e.target as HTMLElement;
-    const text = target.textContent;
-    if (text && text.startsWith('[[') && text.endsWith(']]')) {
-      e.preventDefault();
-      const match = text.match(/\[\[([a-z0-9-]+)(?:\|([^\]]+))?\]\]/);
-      if (match) {
-        const note = getNoteById(match[1]);
-        if (note) setCurrentNote(note.id);
-      }
-    }
-  };
+  // When a search query is active, search globally across all folders.
+  // Folder filter only applies when browsing without a search query.
+  let filteredNotes = searchQuery
+    ? searchNotes(searchQuery)
+    : selectedFolderId !== undefined
+      ? notes.filter(n => n.folderId === selectedFolderId)
+      : notes;
 
   // ── Wiki link inline renderer (preview mode) ──
-  const renderWikiLinkText = (text: string): React.ReactNode => {
+  // Stable reference via useCallback so markdownComponents memo stays valid.
+  const renderWikiLinkText = useCallback((text: string): React.ReactNode => {
     const wikiLinkRegex = /\[\[([a-z0-9-]+)(?:\|([^\]]+))?\]\]/g;
     const parts: React.ReactNode[] = [];
     let lastIndex = 0;
@@ -384,16 +353,20 @@ export const SmritiPage: React.FC = () => {
 
     if (lastIndex < text.length) parts.push(text.substring(lastIndex));
     return parts.length > 0 ? parts : text;
-  };
+  }, [getNoteById, setCurrentNote]);
 
-  // Memoize markdown components to prevent re-creation on every keystroke
+  // FIX #1: added getNoteById (via renderWikiLinkText) to deps so wiki links
+  // resolve correctly after notes finish loading. Previously the empty dep
+  // array meant the memoized object captured getNoteById at mount (before
+  // notes were loaded), causing wiki link display names to always fall back
+  // to the raw note ID instead of the note title.
   const markdownComponents = useMemo(() => ({
     h1: ({ node, ...props }: any) => <h1 className="text-2xl font-bold text-sand mb-3 mt-4" {...props} />,
     h2: ({ node, ...props }: any) => <h2 className="text-xl font-bold text-sand mb-2 mt-4" {...props} />,
     h3: ({ node, ...props }: any) => <h3 className="text-lg font-bold text-sand mb-2 mt-3" {...props} />,
     p: ({ node, children, ...props }: any) => (
       <p className="text-stone-300 mb-3 leading-relaxed text-sm" {...props}>
-        {React.Children.map(children, (child) => 
+        {React.Children.map(children, (child) =>
           typeof child === 'string' ? renderWikiLinkText(child) : child
         )}
       </p>
@@ -422,7 +395,7 @@ export const SmritiPage: React.FC = () => {
       if (assetId) return <AssetImage assetId={assetId} alt={alt} />;
       return <img src={src} alt={alt} className="max-w-full h-auto rounded-lg my-2" {...props} />;
     },
-  }), []);
+  }), [renderWikiLinkText]); // FIX #1: tracks renderWikiLinkText which tracks getNoteById
 
   // ── Loading ──
   if (isLoading) {
@@ -483,6 +456,10 @@ export const SmritiPage: React.FC = () => {
                     <Hash className="w-3 h-3 inline mr-0.5" />
                     Filtering by tag
                   </p>
+                )}
+                {/* FIX #4: show hint when search escapes folder scope */}
+                {searchQuery && selectedFolderId !== undefined && (
+                  <p className="text-xs text-stone-500 mt-1 ml-1">Searching all folders</p>
                 )}
               </div>
             </div>
@@ -580,7 +557,7 @@ export const SmritiPage: React.FC = () => {
                           )}
                         </button>
 
-                        {/* Three-dot action menu — anchored top-right of card */}
+                        {/* Three-dot action menu */}
                         <div className="absolute top-2 right-1 z-10">
                           <NoteActionMenu
                             noteId={note.id}
@@ -602,7 +579,7 @@ export const SmritiPage: React.FC = () => {
         {/* ══════════════════════════════════════════════════ MAIN CONTENT ═══ */}
         <div className="flex-1 flex flex-col min-w-0">
 
-          {/* Top bar: sidebar toggle, title input, view mode switcher */}
+          {/* Top bar */}
           <div className="bg-stone-900 border-b border-stone-800 p-3 flex items-center gap-2 safe-area-inset">
             <button onClick={() => setSidebarOpen(!sidebarOpen)} className="btn-icon" title="Toggle Sidebar">
               <ChevronRight className={cn('w-4 h-4 transition-transform', sidebarOpen && 'rotate-180')} />
@@ -711,23 +688,24 @@ export const SmritiPage: React.FC = () => {
                     </div>
                   )}
 
-                  <form onSubmit={async (e) => {
-                    e.preventDefault();
-                    if (!tagInput.trim() || !currentNote) return;
-                    const newTags = tagInput.trim().replace(/^#/, '').split(',').map(t => t.trim()).filter(Boolean);
-                    for (const tagName of newTags) {
-                      await addTag(currentNote.id, { name: tagName, color: getNextTagColor() });
-                    }
-                    setTagInput('');
-                  }}>
-                    <input
-                      type="text"
-                      value={tagInput}
-                      onChange={(e) => setTagInput(e.target.value)}
-                      placeholder="Work, Personal, Office, etc."
-                      className="input-base w-full text-xs"
-                    />
-                  </form>
+                  {/* Tag input — using onKeyDown instead of a form wrapper */}
+                  <input
+                    type="text"
+                    value={tagInput}
+                    onChange={(e) => setTagInput(e.target.value)}
+                    onKeyDown={async (e) => {
+                      if (e.key !== 'Enter') return;
+                      e.preventDefault();
+                      if (!tagInput.trim() || !currentNote) return;
+                      const newTags = tagInput.trim().replace(/^#/, '').split(',').map(t => t.trim()).filter(Boolean);
+                      for (const tagName of newTags) {
+                        await addTag(currentNote.id, { name: tagName, color: getNextTagColor() });
+                      }
+                      setTagInput('');
+                    }}
+                    placeholder="Work, Personal, Office, etc."
+                    className="input-base w-full text-xs"
+                  />
                 </div>
 
                 {/* Editor + Preview panes */}
@@ -738,6 +716,7 @@ export const SmritiPage: React.FC = () => {
                     <div className={cn('overflow-hidden', viewMode === 'split' ? 'flex-1 border-r border-stone-800' : 'flex-1')}>
                       {isRichEditor ? (
                         <TiptapEditor
+                          key={currentNote.id}
                           content={currentNote.content}
                           onChange={(content) => updateNoteOptimistic(currentNote.id, { content })}
                           placeholder="Start writing... (Markdown supported)"
@@ -770,24 +749,25 @@ export const SmritiPage: React.FC = () => {
                   {/* Preview pane */}
                   {(viewMode === 'preview' || viewMode === 'split') && (
                     <div className="flex-1 p-4 md:p-6 overflow-y-auto">
-                      <div
-                        className="prose prose-invert prose-stone max-w-none prose-sm md:prose-base"
-                        onClick={handleWikiLinkClick}
-                      >
-                          <ReactMarkdown
-                            remarkPlugins={[remarkGfm]}
-                            urlTransform={(value) => value}
-                            components={markdownComponents}
-                          >
-                            {currentNote.content || '*No content yet*'}
-                          </ReactMarkdown>
+                      {/* FIX #5: removed handleWikiLinkClick from onClick — it was dead
+                          code that checked target.textContent for raw [[...]] syntax which
+                          is never present in rendered output. Wiki link spans handle their
+                          own clicks via the onClick in renderWikiLinkText. */}
+                      <div className="prose prose-invert prose-stone max-w-none prose-sm md:prose-base">
+                        <ReactMarkdown
+                          remarkPlugins={[remarkGfm]}
+                          urlTransform={(value) => value}
+                          components={markdownComponents}
+                        >
+                          {currentNote.content || '*No content yet*'}
+                        </ReactMarkdown>
                       </div>
                     </div>
                   )}
                 </div>
               </div>
             ) : (
-              /* Empty state — no note selected */
+              /* Empty state */
               <div className="flex items-center justify-center h-full text-stone-500 p-6">
                 <div className="text-center">
                   <div className="w-12 h-12 mx-auto mb-3 rounded-lg bg-stone-800 flex items-center justify-center">

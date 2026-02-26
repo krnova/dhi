@@ -10,9 +10,10 @@ const ImageComponent = ({ node, deleteNode }: any) => {
   const [error, setError] = useState<string | null>(null);
   const [showDelete, setShowDelete] = useState(false);
 
-  // Track the blob URL in a ref so cleanup always has access to the latest value,
-  // regardless of when the effect cleanup function was created.
-  const blobUrlRef = useRef<string | null>(null);
+  // Track the assetId whose blob URL we currently hold a ref-count on.
+  // Using a ref (not state) ensures cleanup always sees the latest value
+  // regardless of when the effect closure was captured.
+  const heldAssetIdRef = useRef<string | null>(null);
 
   useEffect(() => {
     let active = true;
@@ -28,8 +29,12 @@ const ImageComponent = ({ node, deleteNode }: any) => {
           if (!active) return;
 
           if (asset) {
-            const url = assetService.createObjectURL(asset.blob);
-            blobUrlRef.current = url;
+            // Acquire from shared ref-counted cache.
+            // If AssetImage (ReactMarkdown preview) already holds a URL for
+            // this asset in split mode, we reuse the same blob URL instead
+            // of creating a duplicate.
+            const url = assetService.acquireObjectURL(assetId, asset.blob);
+            heldAssetIdRef.current = assetId;
             setImageUrl(url);
             setLoading(false);
           } else {
@@ -55,12 +60,11 @@ const ImageComponent = ({ node, deleteNode }: any) => {
 
     return () => {
       active = false;
-      // Always revoke whatever blob URL was created during this effect's lifetime.
-      // Using a ref guarantees we revoke the URL that was actually set, not the
-      // stale null captured at effect-creation time.
-      if (blobUrlRef.current && blobUrlRef.current.startsWith('blob:')) {
-        assetService.revokeObjectURL(blobUrlRef.current);
-        blobUrlRef.current = null;
+      // Release our ref-count. The cache will only revoke the underlying
+      // blob URL when no other consumer (e.g. AssetImage) still holds it.
+      if (heldAssetIdRef.current) {
+        assetService.releaseObjectURL(heldAssetIdRef.current);
+        heldAssetIdRef.current = null;
       }
     };
   }, [node.attrs.src]);

@@ -1,4 +1,5 @@
-import React from 'react';
+import { createPortal } from 'react-dom';
+import React, { useEffect } from 'react';
 import { FileText, Folder, Image as ImageIcon, Loader2 } from 'lucide-react';
 
 export interface ImportProgressState {
@@ -27,13 +28,20 @@ export const ImportProgressModal: React.FC<ImportProgressModalProps> = ({
   isOpen,
   progress,
 }) => {
+
+  useEffect(() => {
+    if (!isOpen) return;
+    document.body.style.overflow = 'hidden';
+    return () => { document.body.style.overflow = ''; };
+  }, [isOpen]);
+  
   if (!isOpen) return null;
 
   const percent = progress.total > 0
     ? Math.round((progress.current / progress.total) * 100)
     : 0;
 
-  return (
+  return createPortal(
     <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/80 backdrop-blur-sm">
       <div className="bg-stone-900 border border-stone-700 rounded-xl shadow-2xl w-full max-w-sm p-6 animate-in zoom-in-95 duration-200">
 
@@ -86,6 +94,7 @@ export const ImportProgressModal: React.FC<ImportProgressModalProps> = ({
 
         <p className="text-xs text-stone-600 text-center mt-4">Please don't close the app...</p>
       </div>
-    </div>
+    </div>,
+    document.body
   );
 };

@@ -18,6 +18,9 @@ import { ImportResultModal } from './ImportResultModal';
 export const DataManagementSection: React.FC = () => {
   const [isExporting, setIsExporting] = useState(false);
   const [exportProgress, setExportProgress] = useState<ExportProgress | null>(null);
+  // Track which button triggered the export so the progress bar renders
+  // in the correct button — JSON or Markdown.
+  const [exportType, setExportType] = useState<'json' | 'markdown' | null>(null);
   const [lastBackup, setLastBackup] = useState<string>('Loading...');
   const [needsBackup, setNeedsBackup] = useState(false);
   const [exportError, setExportError] = useState<string | null>(null);
@@ -56,6 +59,7 @@ export const DataManagementSection: React.FC = () => {
 
   const handleExportJSON = async () => {
     setIsExporting(true);
+    setExportType('json');
     setExportProgress(null);
     setExportError(null);
     setExportSuccess(false);
@@ -68,11 +72,13 @@ export const DataManagementSection: React.FC = () => {
     } finally {
       setIsExporting(false);
       setExportProgress(null);
+      setExportType(null);
     }
   };
 
   const handleExportMarkdown = async () => {
     setIsExporting(true);
+    setExportType('markdown');
     setExportProgress(null);
     setExportError(null);
     setExportSuccess(false);
@@ -85,6 +91,7 @@ export const DataManagementSection: React.FC = () => {
     } finally {
       setIsExporting(false);
       setExportProgress(null);
+      setExportType(null);
     }
   };
 
@@ -120,7 +127,6 @@ export const DataManagementSection: React.FC = () => {
 
     setImportStage('importing');
 
-    // Build a progress-aware execute wrapper
     const progressTracker: ImportProgressState = {
       stage: 'folders',
       current: 0,
@@ -135,9 +141,9 @@ export const DataManagementSection: React.FC = () => {
     try {
       // Phase 1 – folders
       setImportProgress(p => ({ ...p, stage: 'folders', message: 'Restoring folders...' }));
-      await new Promise(r => setTimeout(r, 50)); // let UI update
+      await new Promise(r => setTimeout(r, 50));
 
-      // Phase 2 – assets (progress update mid-way)
+      // Phase 2 – assets
       setImportProgress(p => ({
         ...p,
         stage: 'assets',
@@ -191,13 +197,11 @@ export const DataManagementSection: React.FC = () => {
   };
 
   const handleViewNotes = () => {
-    // Reload to reflect new notes in sidebar
     window.location.reload();
   };
 
   const handleResultClose = () => {
     if (importResult?.success) {
-      // Reload after successful import so notes appear
       setTimeout(() => window.location.reload(), 100);
     } else {
       setImportStage('idle');
@@ -207,6 +211,22 @@ export const DataManagementSection: React.FC = () => {
   };
 
   const isParsing = importStage === 'parsing';
+
+  // Shared progress bar block — rendered inside whichever button is active
+  const progressBar = isExporting && exportProgress && exportProgress.stage !== 'complete' && (
+    <div className="mt-2">
+      <div className="flex items-center justify-between text-xs text-stone-500 mb-1">
+        <span>{exportProgress.message}</span>
+        <span>{exportProgress.percent}%</span>
+      </div>
+      <div className="h-1 bg-stone-800 rounded-full overflow-hidden">
+        <div
+          className="h-full bg-bhagwa transition-all duration-300"
+          style={{ width: `${exportProgress.percent}%` }}
+        />
+      </div>
+    </div>
+  );
 
   // ─── Render ────────────────────────────────────────────────────────────────
 
@@ -263,7 +283,7 @@ export const DataManagementSection: React.FC = () => {
           </div>
         )}
 
-        {/* Parse error (inline, not modal) */}
+        {/* Parse error */}
         {importParseError && (
           <div className="p-3 rounded-lg bg-red-900/10 border border-red-900/30 flex items-start gap-2">
             <AlertCircle className="w-4 h-4 text-red-400 flex-shrink-0 mt-0.5" />
@@ -296,20 +316,7 @@ export const DataManagementSection: React.FC = () => {
                 <div className="flex-1 min-w-0">
                   <div className="text-sm font-semibold text-sand">Full Backup (JSON)</div>
                   <div className="text-xs text-stone-400 mt-0.5">Complete fidelity • Recommended</div>
-                  {isExporting && exportProgress && exportProgress.stage !== 'complete' && (
-                    <div className="mt-2">
-                      <div className="flex items-center justify-between text-xs text-stone-500 mb-1">
-                        <span>{exportProgress.message}</span>
-                        <span>{exportProgress.percent}%</span>
-                      </div>
-                      <div className="h-1 bg-stone-800 rounded-full overflow-hidden">
-                        <div
-                          className="h-full bg-bhagwa transition-all duration-300"
-                          style={{ width: `${exportProgress.percent}%` }}
-                        />
-                      </div>
-                    </div>
-                  )}
+                  {exportType === 'json' && progressBar}
                 </div>
               </div>
             </button>
@@ -331,6 +338,7 @@ export const DataManagementSection: React.FC = () => {
                 <div className="flex-1 min-w-0">
                   <div className="text-sm font-semibold text-sand">Markdown Archive</div>
                   <div className="text-xs text-stone-400 mt-0.5">Portable • Human-readable</div>
+                  {exportType === 'markdown' && progressBar}
                 </div>
               </div>
             </button>

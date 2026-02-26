@@ -12,12 +12,19 @@ interface SettingsState {
   requestLocation: () => Promise<void>;
 }
 
+// FIX #4: hasCompletedOnboarding must be explicitly initialized to false so
+// the onboarding guard always reads a known boolean rather than undefined.
+// Without this, a first-launch user (stored settings = null) would have
+// hasCompletedOnboarding as undefined in state, causing the guard to behave
+// inconsistently. The import execution already protects this field from being
+// overwritten — this ensures the default state is equally well-defined.
 const defaultSettings: AppSettings = {
   theme: 'agni-ash',
   fontSize: 'base',
   enableJyotish: true,
   defaultView: 'editor',
   editorMode: 'rich',
+  hasCompletedOnboarding: false,
   location: undefined,
   tagColorPalette: undefined,
 };
@@ -64,17 +71,17 @@ export const useSettingsStore = create<SettingsState>((set, get) => ({
         longitude: position.coords.longitude,
         manual: false,
       };
-      
+
       // 3. Save to store
       get().updateSettings({ location });
 
     } catch (error) {
       console.error('Location failed or denied:', error);
-      
+
       // 4. Fallback to default (Delhi) only if permission is denied
       const defaultLoc = getDefaultLocation();
-      get().updateSettings({ 
-        location: { ...defaultLoc, manual: false } 
+      get().updateSettings({
+        location: { ...defaultLoc, manual: false }
       });
     }
   },

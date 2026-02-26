@@ -1,4 +1,5 @@
-import React, { useState } from 'react';
+import { createPortal } from 'react-dom';
+import React, { useState, useEffect } from 'react';
 import {
   X,
   FileArchive,
@@ -35,10 +36,18 @@ export const ImportPreviewModal: React.FC<ImportPreviewModalProps> = ({
   const [showConflicts, setShowConflicts] = useState(false);
   const [showWarnings, setShowWarnings] = useState(false);
 
+  useEffect(() => {
+    if (!isOpen) return;
+    document.body.style.overflow = 'hidden';
+    return () => { document.body.style.overflow = ''; };
+  }, [isOpen]);
+
   if (!isOpen) return null;
 
-  const skipConflicts = plan.conflicts.filter(c => c.action === 'skip');
-  const regenerateConflicts = plan.conflicts.filter(c => c.action === 'regenerate');
+  // FIX #3: Filter by c.type === 'note' so that folder and asset conflicts
+  // are not incorrectly listed in the Notes conflict UI section.
+  const skipConflicts = plan.conflicts.filter(c => c.type === 'note' && c.action === 'skip');
+  const regenerateConflicts = plan.conflicts.filter(c => c.type === 'note' && c.action === 'regenerate');
   const missingAssetWarnings = plan.warnings.filter(w => w.type === 'missing_asset');
   const otherWarnings = plan.warnings.filter(w => w.type !== 'missing_asset');
 
@@ -51,7 +60,7 @@ export const ImportPreviewModal: React.FC<ImportPreviewModalProps> = ({
     'external-markdown': 'External Markdown',
   }[plan.source];
 
-  return (
+  return createPortal(
     <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/80 backdrop-blur-sm animate-in fade-in duration-200">
       <div className="bg-stone-900 border border-stone-700 rounded-xl shadow-2xl w-full max-w-lg max-h-[90vh] flex flex-col animate-in zoom-in-95 duration-200">
 
@@ -155,7 +164,6 @@ export const ImportPreviewModal: React.FC<ImportPreviewModalProps> = ({
                         </span>
                       </div>
                       <div className="space-y-1 pl-5">
-                        {/* key uses oldId which is a unique identifier per conflict */}
                         {skipConflicts.slice(0, 5).map(c => (
                           <p key={c.oldId} className="text-xs text-stone-500 truncate">
                             • {c.title}
@@ -177,7 +185,6 @@ export const ImportPreviewModal: React.FC<ImportPreviewModalProps> = ({
                         </span>
                       </div>
                       <div className="space-y-1 pl-5">
-                        {/* key uses oldId which is a unique identifier per conflict */}
                         {regenerateConflicts.slice(0, 5).map(c => (
                           <p key={c.oldId} className="text-xs text-stone-500 truncate">
                             • {c.title}
@@ -224,7 +231,6 @@ export const ImportPreviewModal: React.FC<ImportPreviewModalProps> = ({
                       </p>
                       <div className="space-y-0.5 pl-4">
                         {missingAssetWarnings.slice(0, 3).map((w, i) => (
-                          // Prefix with "missing-" namespace to guarantee no collision with otherWarnings keys
                           <p key={`missing-${i}`} className="text-xs text-stone-500 truncate">• {w.message}</p>
                         ))}
                         {missingAssetWarnings.length > 3 && (
@@ -234,7 +240,6 @@ export const ImportPreviewModal: React.FC<ImportPreviewModalProps> = ({
                     </div>
                   )}
                   {otherWarnings.map((w, i) => (
-                    // Prefix with "other-" namespace to guarantee no collision with missingAssetWarnings keys
                     <p key={`other-${i}`} className="text-xs text-stone-500">• {w.message}</p>
                   ))}
                 </div>
@@ -294,6 +299,7 @@ export const ImportPreviewModal: React.FC<ImportPreviewModalProps> = ({
           </button>
         </div>
       </div>
-    </div>
+    </div>,
+    document.body
   );
 };

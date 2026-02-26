@@ -1,4 +1,5 @@
-import React from 'react';
+import { createPortal } from 'react-dom';
+import React, { useEffect } from 'react';
 import {
   X,
   CheckCircle2,
@@ -27,12 +28,29 @@ export const ImportResultModal: React.FC<ImportResultModalProps> = ({
   onViewNotes,
   onClose,
 }) => {
+
+  useEffect(() => {
+    if (!isOpen) return;
+    document.body.style.overflow = 'hidden';
+    return () => { document.body.style.overflow = ''; };
+  }, [isOpen]);
+
   if (!isOpen) return null;
 
   const hasWarnings = result.warnings.length > 0;
   const hasErrors = result.errors.length > 0;
 
-  return (
+  // FIX #6: The original condition gated "View Notes" on notesImported +
+  // notesRegenerated > 0, which hid the button when a re-import of an own
+  // backup resolved all conflicts as 'skip'. The notes are still there and
+  // the user should still be able to navigate to them. Show the button
+  // whenever the import succeeded and any notes were processed at all
+  // (imported, regenerated, or skipped).
+  const totalNotesProcessed =
+    result.notesImported + result.notesRegenerated + result.notesSkipped;
+  const showViewNotes = result.success && totalNotesProcessed > 0;
+
+  return createPortal(
     <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/80 backdrop-blur-sm animate-in fade-in duration-200">
       <div className="bg-stone-900 border border-stone-700 rounded-xl shadow-2xl w-full max-w-md animate-in zoom-in-95 duration-200">
 
@@ -164,7 +182,7 @@ export const ImportResultModal: React.FC<ImportResultModalProps> = ({
           <button onClick={onClose} className="btn-ghost flex-1">
             Close
           </button>
-          {result.success && result.notesImported + result.notesRegenerated > 0 && (
+          {showViewNotes && (
             <button
               onClick={() => { onViewNotes(); onClose(); }}
               className="btn-primary flex-1"
@@ -175,6 +193,7 @@ export const ImportResultModal: React.FC<ImportResultModalProps> = ({
           )}
         </div>
       </div>
-    </div>
+    </div>,
+    document.body
   );
 };
