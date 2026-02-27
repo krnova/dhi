@@ -265,7 +265,7 @@ export async function exportFullBackup(
     const manifest: ExportManifest = {
       version: '1.0.0',
       exportDate: new Date().toISOString(),
-      appVersion: '0.1.0-alpha',
+      appVersion: '0.2.0-alpha',
 
       notes: notes.map(n => ({
         id: n.id,

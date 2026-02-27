@@ -261,7 +261,7 @@ export const SettingsPage: React.FC = () => {
           <div className="space-y-3 text-sm">
             <div className="flex items-center justify-between p-3 rounded-lg bg-stone-800/30">
               <span className="text-stone-400">Version</span>
-              <span className="text-sand font-mono">0.1.0-alpha</span>
+              <span className="text-sand font-mono">0.2.0-alpha</span>
             </div>
 
             <div className="flex items-center justify-between p-3 rounded-lg bg-stone-800/30">

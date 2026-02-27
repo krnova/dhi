@@ -60,7 +60,7 @@ export const Navigation: React.FC = () => {
       {/* Version Info */}
       <div className="p-3 border-t border-stone-800 hidden md:block">
         <p className="text-xs text-stone-500 text-center">
-          v0.1.0-alpha
+          v0.2.0-alpha
         </p>
       </div>
     </nav>
