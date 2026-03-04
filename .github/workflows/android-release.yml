@@ -18,6 +18,8 @@ jobs:
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
 
       - name: Set up Node.js
         uses: actions/setup-node@v4
@@ -88,7 +90,7 @@ jobs:
 
       - name: Set version from tag
         run: |
-          VERSION="${{ github.event.inputs.version || github.ref_name }}"
+          VERSION=$(git describe --tags --abbrev=0 2>/dev/null || echo "alpha")
           VERSION_NAME="${VERSION#v}"
           sed -i "s/versionName .*/versionName \"${VERSION_NAME}\"/" android/app/build.gradle
           echo "Set versionName=${VERSION_NAME}"
